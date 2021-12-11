@@ -5,14 +5,23 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
+	"time"
 
 	"github.com/okta/okta-sdk-golang/v2/okta"
 	"github.com/okta/okta-sdk-golang/v2/okta/query"
 )
 
+/*
+ * LogsRL - range [1-100], indicates % of rate limit for /api/v1/logs has been used when a back off will take place
+ * UsersRL - range [1-100], indicates % of rate limit for /api/v1/users has been used when a back off will take place
+ * ex. a value of 65 will back off once 65% of API calls have been used for a 60 second window for a apecific rate limit
+ */
 const (
-	OrgURL   string = "https://{DOMAIN}.okta.com"
-	APIToken string = "{API_TOKEN}"
+	OrgURL   string  = "https://{DOMAIN}}.okta.com"
+	APIToken string  = "{API_KEY}"
+	LogsRL   float64 = 60
+	UsersRL  float64 = 60
 )
 
 var client *okta.Client
@@ -27,6 +36,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Error Initializing Okta Mgmt Client: %s\n", err)
 	}
+
 	getEvents()
 	getStaged()
 	checkNonStagedUsers()
@@ -47,6 +57,7 @@ func getEvents() {
 	}
 
 	for next != resp.NextPage && resp.NextPage != "" {
+		checkRateLimit(resp.Header, LogsRL*.01)
 		fmt.Printf("Getting next block of events\n")
 		var events2 []*okta.LogEvent
 		next = resp.NextPage
@@ -69,8 +80,8 @@ func getStaged() {
 	}
 	next := ""
 	checkStagedUsers(stagedUsers)
-
 	for next != resp.NextPage && resp.NextPage != "" {
+		checkRateLimit(resp.Header, UsersRL*.01)
 		fmt.Printf("Getting next block of staged users\n")
 		var stagedUsers2 []*okta.User
 		next = resp.NextPage
@@ -88,7 +99,6 @@ func checkStagedUsers(stagedUsers []*okta.User) {
 		if user, ok := (*u.Profile)["login"].(string); ok {
 			if _, ok := users[user]; ok {
 				staged = append(staged, user)
-				// staged = append(staged, fmt.Sprintf("%s : %d", user, users[user]))
 				delete(users, user)
 			}
 		} else {
@@ -99,13 +109,11 @@ func checkStagedUsers(stagedUsers []*okta.User) {
 
 func checkNonStagedUsers() {
 	cnt := 0
-	// for k, v := range users {
 	for k, _ := range users {
-		found, _, err := client.User.ListUsers(context.TODO(), query.NewQueryParams(query.WithFilter(fmt.Sprintf("profile.login eq \"%s\"", k))))
+		u, resp, err := client.User.GetUser(context.TODO(), k)
 		if err != nil {
-			fmt.Printf("Warning checking if user %s exists: %s, adding to nonExistent\n", k, err)
 			nonExistent = append(nonExistent, k)
-			// nonExistent = append(nonExistent, fmt.Sprintf("%s : %d", k, v))
+			checkRateLimit(resp.Header, UsersRL*.01)
 			continue
 		}
 		cnt += 1
@@ -113,12 +121,29 @@ func checkNonStagedUsers() {
 			fmt.Printf("Checked status of %d users\n", cnt)
 		}
 
-		if len(found) > 0 {
-			nowActive = append(nowActive, fmt.Sprintf("%s : %s", k, found[0].Status))
-			// nowActive = append(nowActive, fmt.Sprintf("%s : %d : %s", k, v, found[0].Status))
+		if u != nil {
+			nowActive = append(nowActive, fmt.Sprintf("%s : %s", k, u.Status))
 		} else {
 			nonExistent = append(nonExistent, k)
-			// nonExistent = append(nonExistent, fmt.Sprintf("%s : %d", k, v))
+		}
+		checkRateLimit(resp.Header, UsersRL*.01)
+	}
+}
+
+func checkRateLimit(headers map[string][]string, percent float64) {
+	rateLimit := headers["X-Rate-Limit-Limit"]
+	rateLimitRemaining := headers["X-Rate-Limit-Remaining"]
+	rateLimitReset := headers["X-Rate-Limit-Reset"]
+
+	if len(rateLimit) > 0 && len(rateLimitRemaining) > 0 && len(rateLimitReset) > 0 {
+		fmt.Printf("RateLimit: %v, RateLimitRemaining: %v\n", rateLimit, rateLimitRemaining)
+		rlremain, _ := strconv.ParseFloat(rateLimitRemaining[0], 64)
+		rl, _ := strconv.ParseFloat(rateLimit[0], 64)
+
+		if rl-rlremain >= percent*rl {
+			rlreset, _ := strconv.ParseInt(rateLimitReset[0], 10, 64)
+			fmt.Printf("Sleeping for: %v seconds\n", rlreset-time.Now().Unix()+1)
+			time.Sleep(time.Duration(rlreset-time.Now().Unix()+1) * time.Second)
 		}
 	}
 }
@@ -133,5 +158,6 @@ func writeToFile(name string, data []string) {
 	for _, v := range data {
 		f.WriteString(fmt.Sprintf("%s\n", v))
 	}
+	f.WriteString(fmt.Sprintf("\nTotal: %v\n", len(data)))
 	f.Sync()
 }
