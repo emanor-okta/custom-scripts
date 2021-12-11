@@ -1,8 +1,8 @@
 # verification-error
 ### To Install
 ```
-git clone https://github.com/emanor-okta/saml-assertion-flow-with-okta.git
-cd saml-assertion-flow-with-okta
+git clone https://github.com/emanor-okta/custom-scripts.git
+cd verification-error
 go mod tidy
 ```
 
