@@ -18,10 +18,10 @@ import (
  * ex. a value of 65 will back off once 65% of API calls have been used for a 60 second window for a apecific rate limit
  */
 const (
-	OrgURL   string  = "https://{DOMAIN}}.okta.com"
-	APIToken string  = "{API_KEY}"
-	LogsRL   float64 = 60
-	UsersRL  float64 = 60
+	OrgURL   string = "https://{DOMAIN}.okta.com"
+	APIToken string = "{API_TOKEN}"
+	LogsRL   int    = 60
+	UsersRL  int    = 60
 )
 
 var client *okta.Client
@@ -57,7 +57,7 @@ func getEvents() {
 	}
 
 	for next != resp.NextPage && resp.NextPage != "" {
-		checkRateLimit(resp.Header, LogsRL*.01)
+		checkRateLimit(resp.Header, LogsRL)
 		fmt.Printf("Getting next block of events\n")
 		var events2 []*okta.LogEvent
 		next = resp.NextPage
@@ -81,7 +81,7 @@ func getStaged() {
 	next := ""
 	checkStagedUsers(stagedUsers)
 	for next != resp.NextPage && resp.NextPage != "" {
-		checkRateLimit(resp.Header, UsersRL*.01)
+		checkRateLimit(resp.Header, UsersRL)
 		fmt.Printf("Getting next block of staged users\n")
 		var stagedUsers2 []*okta.User
 		next = resp.NextPage
@@ -113,7 +113,7 @@ func checkNonStagedUsers() {
 		u, resp, err := client.User.GetUser(context.TODO(), k)
 		if err != nil {
 			nonExistent = append(nonExistent, k)
-			checkRateLimit(resp.Header, UsersRL*.01)
+			checkRateLimit(resp.Header, UsersRL)
 			continue
 		}
 		cnt += 1
@@ -126,11 +126,15 @@ func checkNonStagedUsers() {
 		} else {
 			nonExistent = append(nonExistent, k)
 		}
-		checkRateLimit(resp.Header, UsersRL*.01)
+		checkRateLimit(resp.Header, UsersRL)
 	}
 }
 
-func checkRateLimit(headers map[string][]string, percent float64) {
+func checkRateLimit(headers map[string][]string, percent int) {
+	if percent < 1 || percent > 100 {
+		log.Fatalf("Rate Limit value needs to be in range of [1-100]")
+	}
+	p := float64(percent) * 0.01
 	rateLimit := headers["X-Rate-Limit-Limit"]
 	rateLimitRemaining := headers["X-Rate-Limit-Remaining"]
 	rateLimitReset := headers["X-Rate-Limit-Reset"]
@@ -140,7 +144,7 @@ func checkRateLimit(headers map[string][]string, percent float64) {
 		rlremain, _ := strconv.ParseFloat(rateLimitRemaining[0], 64)
 		rl, _ := strconv.ParseFloat(rateLimit[0], 64)
 
-		if rl-rlremain >= percent*rl {
+		if rl-rlremain >= p*rl {
 			rlreset, _ := strconv.ParseInt(rateLimitReset[0], 10, 64)
 			fmt.Printf("Sleeping for: %v seconds\n", rlreset-time.Now().Unix()+1)
 			time.Sleep(time.Duration(rlreset-time.Now().Unix()+1) * time.Second)
