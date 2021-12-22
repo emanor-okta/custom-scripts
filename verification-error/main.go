@@ -39,15 +39,15 @@ func main() {
 
 	getEvents()
 	getStaged()
-	checkNonStagedUsers()
+	//checkNonStagedUsers()				// uncomment to check for users that have become active or don't exist. Adds run time with user lookups
 	writeToFile("staged.txt", staged)
-	writeToFile("non-existent.txt", nonExistent)
-	writeToFile("now-active.txt", nowActive)
+	//writeToFile("non-existent.txt", nonExistent)	// uncomment if checkNonStagedUsers() is uncommented
+	//writeToFile("now-active.txt", nowActive)	// uncomment if checkNonStagedUsers() is uncommented
 }
 
 func getEvents() {
 	users = make(map[string]int)
-	events, resp, err := client.LogEvent.GetLogs(context.TODO(), query.NewQueryParams(query.WithFilter("outcome.reason eq \"VERIFICATION_ERROR\""), query.WithSince("2017-10-01T00:00:00.000Z")))
+	events, resp, err := client.LogEvent.GetLogs(context.TODO(), query.NewQueryParams(query.WithFilter("outcome.reason eq \"VERIFICATION_ERROR\""), query.WithSince("2017-10-01T00:00:00.000Z"), query.WithLimit(1000)))
 	if err != nil {
 		log.Fatalf("Error calling GetLogs: %s\n", err)
 	}
@@ -74,7 +74,7 @@ func getEvents() {
 }
 
 func getStaged() {
-	stagedUsers, resp, err := client.User.ListUsers(context.TODO(), query.NewQueryParams(query.WithFilter("status eq \"STAGED\"")))
+	stagedUsers, resp, err := client.User.ListUsers(context.TODO(), query.NewQueryParams(query.WithFilter("status eq \"STAGED\""), query.WithLimit(200)))
 	if err != nil {
 		log.Fatalf("Error calling Get Staged Users: %s\n", err)
 	}
