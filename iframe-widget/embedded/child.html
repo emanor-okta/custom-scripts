@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+   <meta name="viewport" content="width=device-width, initial-scale=1.0, shrink-to-fit=no"> 
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.0/css/bootstrap.min.css" integrity="sha384-9aIt2nRpC12Uk9gS9baDl411NQApFmC26EwAOH8WgZl5MYYxFfc+NcPb1dKGj7Sk" crossorigin="anonymous">
+    <title>Simple Web Page</title>
+    <style>
+      h1 {
+        margin: 2em 0;
+      }
+    </style>
+     <script src="https://global.oktacdn.com/okta-signin-widget/6.2.0/js/okta-sign-in.min.js" type="text/javascript"></script>
+    <link href="https://global.oktacdn.com/okta-signin-widget/6.2.0/css/okta-sign-in.min.css" type="text/css" rel="stylesheet"->
+  </head>
+  <body>
+    <div class="container">
+      <div id="okta-login-container"></div>
+    </div>
+    <script type="text/javascript">
+ 
+      const oktaSignIn = new OktaSignIn({
+		    logo:"",
+        baseUrl: "https://{DOMAIN}.okta.com",
+        clientId: "{CLIENT_ID}",
+	redirectUri: 'http://localhost:8080/embedded/child.html',
+	authParams: {
+          issuer: "https://{DOMAIN}.oktar.com/oauth2/default",
+	  scopes: ['openid', 'email', 'profile'],
+        }
+      });
+
+      console.log(">>>>>>>>>>>> Embedded Login >>>>>>>>>>>>>>");
+      
+      oktaSignIn.showSignInToGetTokens({el: '#okta-login-container'})
+      .then(function(tokens) {
+        // Store tokens
+        console.log('Got Tokens');
+        console.log(tokens);
+        oktaSignIn.authClient.tokenManager.setTokens(tokens);
+        signalParent();
+      }).catch(function(error) {
+        console.log('Error');
+        console.log(error);
+        // This function is invoked with errors the widget cannot recover from:
+        // Known errors: CONFIG_ERROR, UNSUPPORTED_BROWSER_ERROR
+      });
+       
+      function signalParent() {
+        oktaSignIn.remove();
+        console.log('Signal Parent');
+        window.parent.postMessage("closeMe", "*");
+      }
+    </script>
+  </body>
+</html>
