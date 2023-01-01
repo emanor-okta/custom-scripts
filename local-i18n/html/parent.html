@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+   <meta name="viewport" content="width=device-width, initial-scale=1.0, shrink-to-fit=no"> 
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.0/css/bootstrap.min.css" integrity="sha384-9aIt2nRpC12Uk9gS9baDl411NQApFmC26EwAOH8WgZl5MYYxFfc+NcPb1dKGj7Sk" crossorigin="anonymous">
+    <title>Simple Web Page</title>
+    <style>
+      h1 {
+        margin: 2em 0;
+      }
+    </style>
+     <script src="https://global.oktacdn.com/okta-auth-js/6.4.0/okta-auth-js.min.js" type="text/javascript"></script>
+  </head>
+  <body>
+    <div class="container">
+      <h1 class="text-center">Simple Web Page</h1>
+      <div id="messageBox" class="jumbotron">
+        You are not logged in. Get outta here! Shoo! >:S
+      </div>
+      <!-- where the sign-in form will be displayed -->
+      <div id="okta-login-container" style="display: block">
+        <!--iframe title="login" src="http://localhost:8080/embedded/child.html" width="450" height="600"></iframe-->
+        <!--iframe title="login" src="https://okta.oktamanor.com/oauth2/v1/authorize?client_id=0oa8rc1vvUWbpGroC1d6&amp;response_type=code&amp;response_mode=query&amp;scope=openid&amp;profile email groups&amp;redirect_uri=https://httpbin.org/get&amp;state=foreverInTheSameState&amp;nonce=855" crossorigin="use-credentials" width="450" height="600"></iframe-->
+        <iframe title="login" src="http://app.oktamanor.com:8080/oauth2/v1/authorize?client_id=0oa8rc1vvUWbpGroC1d6&amp;response_type=code&amp;response_mode=query&amp;scope=openid&amp;profile email groups&amp;redirect_uri=https://httpbin.org/get&amp;state=foreverInTheSameState&amp;nonce=855" crossorigin="use-credentials" width="450" height="600"></iframe>
+        <!--iframe title="login" src="https://okta.oktamanor.com/oauth2/default/v1/logout?id_token_hint=eyJraWQiOiJiZXdKOTZUWG16U0JldS1oem5kLXM1MDZFcGN2Z3RpZ21rYU1UQjNJenRrIiwiYWxnIjoiUlMyNTYifQ.eyJzdWIiOiIwMHU0dzF2bWh0VFk4Q2l1dzFkNiIsIm5hbWUiOiJJZ29yIERlYW4iLCJlbWFpbCI6Imlnb3IuZGVhbkBva3RhYXV0aDAuY29tIiwidmVyIjoxLCJpc3MiOiJodHRwczovL29rdGEub2t0YW1hbm9yLmNvbS9vYXV0aDIvZGVmYXVsdCIsImF1ZCI6IjBvYTVpNTYzbXlrajZjaDBVMWQ2IiwiaWF0IjoxNjU4ODYyMjA1LCJleHAiOjE2NTg4NjU4MDUsImp0aSI6IklELjBsRzN2d19zVWJNNV81RFliWmlFV3hQZlV6TmNLMk94ZWxRQzhJTFExYXciLCJhbXIiOlsicHdkIl0sImlkcCI6IjAwbzQ4aHQ0Z1RVNWlvQXlEMWQ2Iiwibm9uY2UiOiJEWjFGejJHYmlock53Z1A5d2JIOXFvaTZWNXFRdzgwbmhMb2dOcTJrZHJnbFozSHY0bHY5Wk5YWDk2MDFyZndEIiwicHJlZmVycmVkX3VzZXJuYW1lIjoiaWdvci5kZWFuQG9rdGFpY2UuY29tIiwiYXV0aF90aW1lIjoxNjU4ODYyMjA0LCJhdF9oYXNoIjoibGdyZlVqN2E5VEtIWlp6OS01c1VTdyIsImdyb3VwczMiOltdLCJncm91cHMyIjpbIkV2ZXJ5b25lIl0sImlwcHAiOlsiRXZlcnlvbmUiXSwibXl1c2VyIjoiSWdvciBEZWFuIiwibXlhcHB1c2VyIjoiSWdvciBEZWFuIiwic2hyZ3JwczIiOlsiRGFya1NjaW0iXX0.zDmR26-OQXauHj7EDYNSw2_CTSe2ii10KpGx5Lw3PSn-euiD3YQjnv72KYeugCgOtyKTRukpPwnNnMr0tc9w9rMwJFml3TLwRFcXKwn_3jq4unNDxSSy_lGS4tbyY9-p8hOglvbEyg2qtehTUd4dpkKNlYU-cnH_0SPqe9z3ZKV6lSuLIDGWSrsOLBtFMiu0RPxiSw-Hm-ZT-ToFsAjV70TicJW_jJsUZ9pwd8lFS68cW9jMdlSOTyqtNzTyvOSmroxNfE9ecSfzJLgLY0LJiVDZPPKJbmv8r9DAu8fg1q5ilqw21vZD6mAexT5A2xI-eOtcNP8x2ZhNOi34dwn_6w&post_logout_redirect_uri=http%3A%2F%2Flocalhost%3A8080%2Fembedded%2Fparent.html" width="450" height="600"></iframe-->
+      </div>
+      <button id="logout" class="button" onclick="logout()" style="display: none">Logout</button>
+    </div>
+    <script type="text/javascript">
+ 
+      const oktaAuth = new OktaAuth({
+		    clientId: "0oa5i563mykj6ch0U1d6",
+	    	redirectUri: 'http://localhost:8080/embedded/parent.html',
+	      issuer: "https://okta.oktamanor.com/oauth2/default",
+		    scopes: ['openid', 'email', 'profile'],
+        postLogoutRedirectUri: 'http://localhost:8080/embedded/parent.html',
+      });
+
+      window.addEventListener("message", (event) => {
+          // Do we trust the sender of this message?
+          if (event.origin !== "http://example.com:8080" && event.data !== 'closeMe') {
+            console.log('Untrusted message received from another window/frame');
+            console.log(event.origin);
+            console.log(event.data);
+            return;
+          }
+          
+          document.getElementById("okta-login-container").style.display = 'none';
+          oktaAuth.token.getUserInfo().then(displayUserInfo, function(error) {
+            console.log('Error getUserInfo in eventListener: ' + error);
+          });
+      }, false);
+
+      oktaAuth.token.getUserInfo().then(displayUserInfo, function(error) {
+        console.log(">>>>>>>>> Not Logged In >>>>>>>>>>>>>>>>>");
+        document.getElementById("okta-login-container").style.display = 'block';
+      });
+      
+      async function logout() {
+        await oktaAuth.signOut();
+        await oktaAuth.tokenManager.clear();
+      }
+
+      function displayUserInfo(user) {
+        document.getElementById("messageBox").innerHTML = "Hello, " + user.email + "! You are *still* logged in! :)<br>" 
+          +"<b>Name </b>"+user.name
+          +"<br><b>Family Name </b>"+user.family_name
+          +"<br><b>Given Name </b>"+user.given_name
+          +"<br><b>Address </b>"+user.address
+          +"<br><b>Phone </b>"+user.phone
+          +"<br><b>Gender </b>"+user.gender
+          +"<br><b>Locale </b>"+user.locale
+          +"<br><b>Employee Number </b>"+user.employeeNumber
+          +".";
+        document.getElementById("logout").style.display = 'block';
+      }
+    </script>
+  </body>
+</html>

@@ -1,0 +1,10 @@
+okta:
+  idx:
+    issuer: https://oie.erikdevelopernot.com/oauth2/default
+    clientId: 0oa2cpl777xczKzL21d7
+    clientSecret: ...
+    scopes:
+      - openid
+      - profile
+      - email
+    redirectUri: https://httpbin.org/get
