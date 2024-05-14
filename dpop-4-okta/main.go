@@ -89,7 +89,9 @@ var flowParams FlowParams
 
 func main() {
 	flowParams = parseCommandLineArgs()
-	if flowParams.Port == "" {
+	if flowParams.Type == "jwt" {
+		fmt.Printf("JWT Credential:\n%s\n", generateAssertion(flowParams))
+	} else if flowParams.Port == "" {
 		// client credentials or auth code was provided
 		getTokens()
 	} else {
@@ -366,6 +368,8 @@ func parseCommandLineArgs() FlowParams {
 		flowParams.Type = "service"
 	case "web":
 		flowParams.Type = "web"
+	case "jwt":
+		flowParams.Type = "jwt"
 	default:
 		showHelp()
 	}
@@ -422,6 +426,7 @@ func showHelp() {
 	fmt.Println("\nAvailable Commands:")
 	fmt.Printf("  %-10sAuthorization Code\n", "web")
 	fmt.Printf("  %-10sClient Credentials\n", "m2m")
+	fmt.Printf("  %-10sGenerate JWT Credential for Oauth for Okta without DPoP\n", "jwt")
 
 	fmt.Println("\nFlags:")
 	fmt.Printf("  %-3s %-20s Okta Authorization Server\n", "-i,", "--issuer")
