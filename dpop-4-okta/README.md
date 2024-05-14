@@ -4,7 +4,7 @@
 For General Help either run straight from source,  
 `go mod tidy`  
 `go run main.go`  
-or download appropriate binary from release page,  
+or [download](https://github.com/emanor-okta/custom-scripts/releases) appropriate binary from release page,  
 MacOS - `./dpop-4-okta_darwin-amd64`  
 Windows - `dpop-4-okta_win-amd64.exe`   
    
