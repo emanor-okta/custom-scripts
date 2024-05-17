@@ -90,7 +90,11 @@ var flowParams FlowParams
 func main() {
 	flowParams = parseCommandLineArgs()
 	if flowParams.Type == "jwt" {
-		fmt.Printf("JWT Credential:\n%s\n", generateAssertion(flowParams))
+		if flowParams.Scopes == "" {
+			fmt.Printf("JWT Credential:\n%s\n", generateAssertion(flowParams))
+		} else {
+			tokenCall("POST", getHtu(flowParams.Issuer), "", []byte(""), generateTokenPayload(flowParams))
+		}
 	} else if flowParams.Port == "" {
 		// client credentials or auth code was provided
 		getTokens()
@@ -269,7 +273,9 @@ func httpRequest(method, url, contentType, authorization, dpop string, payload *
 	}
 	req.Header.Add("Accept", "application/json")
 	req.Header.Add("Content-Type", contentType)
-	req.Header.Add("DPoP", dpop)
+	if dpop != "" {
+		req.Header.Add("DPoP", dpop)
+	}
 	// fmt.Println(dpop)
 	if authorization != "" {
 		req.Header.Add("Authorization", authorization)

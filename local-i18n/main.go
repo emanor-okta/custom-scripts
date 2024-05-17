@@ -120,6 +120,15 @@ func handleKeys(res http.ResponseWriter, req *http.Request) {
 func handleServiceKeys(res http.ResponseWriter, req *http.Request) {
 	// keys := `{"keys":[{"kty":"RSA","e":"AQAB","kid":"4vMiWTLn9nvEKliV67HyXnVRpWE0harVegnEh8v-nnc","n":"sva1f8Vj1G025BxzdIC1hpYy7hAyegbMTY6txgCbp_LTsIpDX0pwJg5oBImvAxHZrQxKSJjoS4wyRdsE1XjhG0ydkC_H7r6DfY_YNdRHy5anBAYxwl8vVDrBUTEyPZSVijeB1QbYN9TkAma-R-AX1jkoKOagodrqVhphxKKXgNmeYpoObp5v0f8mbdZxuE4uGvcRh0evRj7JV2j-5QbMp-FJPzhMrolN9HAV22Dj9TEfOgKdlLXTtrbA3Q20jmxAazTDiFJC8RWwgBnHHssTU-64ZwUwdN2hoFyeWGui8cOOygtQvfTyxGH3AFZxmXbLKT1js9k747v3RJivDd-_7w"},{"kty":"RSA","e":"AQAB","kid":"xMqrNgSqQdIJEKTkLKTrCT8zKEKNy3p8DeE9Q0lZ-Lg","n":"wu0X5OYS8pLpKFQ9gA41P-ej_jVSoxl9HWNwjvVXyQ_Yb5263leE5rADxQ1pKnOCcvU--ZtLHCakQsBxuaqq46cYCoSDetto8hO9uPRVQJxDWjqyf7-ZaiLD3eBNfS79RNJUGfmD8qcQesLz6WpyMjnngw03oS69DC572KEcoRb80v8WFc-_IH4tu1VpVWirVh-uQVp12G87Z9AdveNtbb-7NKq_QBb_F5VtSWYb7VVHY5DNuYz14G5XVuxNNPua_ms49dOsCwFIGx7VW3i9cV6Zv8OdH2GPxfsneQd2iiNrtRBQR2qs_94mwtOeyViuuUmzoU9Q53ZOuouhokHG3Q"}]}`
 	keys := `{"keys":[  {"kty":"RSA","e":"AQAB","kid":"fXAoZYMCzKIO2rhoUD1tKF_SA3S6fBeoBG6qZcOXg4M","n": "0h2M59SAWZvR0wAotzOvu9VgiNQWL4XnjWxH1yp7k85kgN8HY1e-qc8og4Tk3NZPevOXH67e89jHVoEKHkA9IsNve5Vp6ELS2yo5hVty144LhXbnc3BEcZDuUuuCAK_s__cgHbWy8yDKnCLcHV7ZLshm7zX9KOnw7IOGdH-3BIGhyZzMbsQGc7XSo6e9xNmjhU-RrNqH98VIMt2ye7JxaMKlGC9OI2cX0J6_2T2RP20WMMPKWDgcWwA5WxIQDs2Wa-zx25iuHI23xpczp--KRfquBZ_BQHG9zpFZWwHtNOLDFfmgxpib_CMenJ30oUjsCEXuHaDPeCZ7QIL8RUUufw"}]}`
+	keys = `{"keys":[{  
+		"kid": "key2",
+		"kty": "RSA",
+		"e": "AQAB",
+		"use": "sig",
+		"n": "yF1M5A3ev9KXr6GCsodM-YXBNZ5kC8N7gIO2F3IkbUikhFydQmCUYDs9OmbEkfTL3xltg2CQ43HzaJm9D6CCTogxF2GLkSsnnY3mcNNA6EnITdv11AV0GYtR5KI3F7EcVhbWdYh3Q7jywGdSTESwoULTXsuPtY3oLtKDm2ewKqARzFUfPWDky0a_xJ4KPRcOwtG_F7h4L4L1pVWo5QsJ60YYBNaZ82ug04-UttMLt0GSxkzQmjvC_cXJzCSQ3dFoyaTYWxzE7Mv5WJDM6eOSkOBNskUYs5FWj3Pg6KRP0rlAYEtGeUVH6L-ccvJhWeSFVHKp0DhkxykvP8I8xmoPfw"
+		}]
+	}`
+	fmt.Printf("%+v\n", req)
 	res.Header().Add("Content-Type", "application/json")
 	res.Write([]byte(keys))
 }
