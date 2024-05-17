@@ -90,14 +90,21 @@ var flowParams FlowParams
 func main() {
 	flowParams = parseCommandLineArgs()
 	if flowParams.Type == "jwt" {
-		if flowParams.Scopes == "" {
-			fmt.Printf("JWT Credential:\n%s\n", generateAssertion(flowParams))
-		} else {
-			tokenCall("POST", getHtu(flowParams.Issuer), "", []byte(""), generateTokenPayload(flowParams))
-		}
+		fmt.Printf("JWT Credential:\n%s\n", generateAssertion(flowParams))
+		// if flowParams.Scopes == "" {
+		// 	fmt.Printf("JWT Credential:\n%s\n", generateAssertion(flowParams))
+		// } else {
+		// 	tokenCall("POST", getHtu(flowParams.Issuer), "", []byte(""), generateTokenPayload(flowParams))
+		// }
 	} else if flowParams.Port == "" {
 		// client credentials or auth code was provided
-		getTokens()
+		// check if non - DPoP m2m
+		if flowParams.ApiEndpoint == "" {
+			tokenCall("POST", getHtu(flowParams.Issuer), "", []byte(""), generateTokenPayload(flowParams))
+		} else {
+			// DPoP m2m or web (with auth code provided)
+			getTokens()
+		}
 	} else {
 		// auth code flow - start callback server
 		http.HandleFunc("/callback", handleCallbackReq)
