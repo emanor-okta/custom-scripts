@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
@@ -86,36 +87,50 @@ func (s *loggingTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 }
 
 var flowParams FlowParams
+var privkey, pubkey jwk.Key
+var jwtPayload JwtPayload
 
 func main() {
 	flowParams = parseCommandLineArgs()
 	if flowParams.Type == "jwt" {
 		fmt.Printf("JWT Credential:\n%s\n", generateAssertion(flowParams))
-		// if flowParams.Scopes == "" {
-		// 	fmt.Printf("JWT Credential:\n%s\n", generateAssertion(flowParams))
-		// } else {
-		// 	tokenCall("POST", getHtu(flowParams.Issuer), "", []byte(""), generateTokenPayload(flowParams))
-		// }
 	} else if flowParams.Port == "" {
 		// client credentials or auth code was provided
-		// check if non - DPoP m2m
 		if flowParams.ApiEndpoint == "" {
+			// no DPoP m2m, get access_token
 			tokenCall("POST", getHtu(flowParams.Issuer), "", []byte(""), generateTokenPayload(flowParams))
 		} else {
-			// DPoP m2m or web (with auth code provided)
+			// DPoP m2m or web (with auth code provided), start token calls
 			getTokens()
+			reader := bufio.NewReader(os.Stdin)
+			for {
+				fmt.Print("Press Enter to generate new DPoP or 'q' to quit: ")
+				input, _ := reader.ReadString('\n')
+				fmt.Println(input)
+				if strings.TrimSpace(input) == "q" {
+					return
+				}
+				fmt.Printf("\n\nDPoP: %s\n\n", generateDpop())
+			}
 		}
 	} else {
 		// auth code flow - start callback server
 		http.HandleFunc("/callback", handleCallbackReq)
+		http.HandleFunc("/generate_dpop", handleGenerateDpop)
 		if err := http.ListenAndServe(fmt.Sprintf(":%s", flowParams.Port), nil); err != nil {
 			log.Fatalf("\nError, Server startup failed: %s\n", err)
 		}
 	}
 }
 
+func generateDpop() string {
+	// generates another DPoP since each API call with the access_token requires a unique DPoP sent with the request
+	jwtPayload.Jti = uuid.NewString()
+	return string(signJwt(jwtPayload, jws.WithKey(jwa.RS256, privkey, jws.WithProtectedHeaders(generateJwtHeader(pubkey)))))
+}
+
 func getTokens() string {
-	privkey, pubkey := getOrGenerateDpopKey(flowParams.DpopPem)
+	privkey, pubkey = getOrGenerateDpopKey(flowParams.DpopPem)
 
 	fmt.Println("\nDPoP Private Key:")
 	json.NewEncoder(os.Stdout).Encode(privkey)
@@ -123,7 +138,7 @@ func getTokens() string {
 	json.NewEncoder(os.Stdout).Encode(pubkey)
 
 	// token call 1
-	jwtPayload := JwtPayload{
+	jwtPayload = JwtPayload{
 		Htm: "POST",
 		Htu: getHtu(flowParams.Issuer),
 		Iat: time.Now().Unix(),
@@ -367,6 +382,11 @@ func handleCallbackReq(res http.ResponseWriter, req *http.Request) {
 	flowParams.Code = code
 	values := getTokens()
 	res.Write([]byte(values))
+}
+
+func handleGenerateDpop(res http.ResponseWriter, req *http.Request) {
+	dpop := generateDpop()
+	res.Write([]byte(dpop))
 }
 
 func parseCommandLineArgs() FlowParams {
