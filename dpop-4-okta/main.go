@@ -8,7 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"net/http"
 	"net/http/httputil"
@@ -46,6 +46,7 @@ type AssertionPayload struct {
 	Iss string `json:"iss,omitempty"`
 	Sub string `json:"sub,omitempty"`
 	Exp int64  `json:"exp,omitempty"`
+	Jti string `json:"jti,omitempty"`
 }
 
 type FlowParams struct {
@@ -315,7 +316,7 @@ func httpRequest(method, url, contentType, authorization, dpop string, payload *
 		dpopNonce = dpopNonceHeaders[0]
 	}
 
-	body, err := ioutil.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		fmt.Println(err)
 		return "", "", err
@@ -347,13 +348,14 @@ func generateAssertion(fp FlowParams) string {
 	if err != nil {
 		log.Fatalf("\nError, Reading Key file for JWT Assertion, %+v\n", err)
 	}
-
+	fmt.Println(pem)
 	privkey, _ := getKeys(pem)
 	assertion := AssertionPayload{
 		Aud: fmt.Sprintf("%s/oauth2/v1/token", fp.Issuer),
 		Iss: fp.ClientId,
 		Sub: fp.ClientId,
 		Exp: time.Now().Unix(),
+		// Jti: "AlwaysTheSame2",
 	}
 	payload, _ := json.Marshal(assertion)
 	hdrs := jws.NewHeaders()

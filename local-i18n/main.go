@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -39,7 +40,7 @@ func main() {
 func handleI18nPropertyReq(res http.ResponseWriter, req *http.Request) {
 	fmt.Printf("Received Request:\n%v\n", req.RequestURI)
 	res.Header().Add("access-control-allow-origin", "*")
-	b, err := ioutil.ReadFile(fmt.Sprintf("./properties/%v", strings.Split(req.RequestURI, "/")[5]))
+	b, err := os.ReadFile(fmt.Sprintf("./properties/%v", strings.Split(req.RequestURI, "/")[5]))
 	if err != nil {
 		fmt.Printf("handleLogin - Error reading json: %v\n", err)
 		res.WriteHeader(http.StatusInternalServerError)
