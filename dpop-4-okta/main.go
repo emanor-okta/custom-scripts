@@ -266,7 +266,6 @@ func generateTokenPayload(fp FlowParams) *strings.Reader {
 		assertionType := "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
 		payload = fmt.Sprintf(client_credentials_payload, grantType, strings.ReplaceAll(fp.Scopes, ",", " "), assertionType, generateAssertion(fp))
 	}
-
 	return strings.NewReader(payload)
 }
 
@@ -289,6 +288,7 @@ func httpRequest(method, url, contentType, authorization, dpop string, payload *
 	} else {
 		httpClient = &http.Client{}
 	}
+
 	req, err := http.NewRequest(method, url, payload)
 	if err != nil {
 		fmt.Println(err)
@@ -354,7 +354,7 @@ func generateAssertion(fp FlowParams) string {
 		Aud: fmt.Sprintf("%s/oauth2/v1/token", fp.Issuer),
 		Iss: fp.ClientId,
 		Sub: fp.ClientId,
-		Exp: time.Now().Unix(),
+		Exp: time.Now().Unix(), //+ 60*60 + 1,
 		// Jti: "AlwaysTheSame2",
 	}
 	payload, _ := json.Marshal(assertion)
