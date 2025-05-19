@@ -1,302 +1,49 @@
-// package main
-
-// import (
-// 	"fmt"
-// 	"io"
-// 	"os"
-// 	"strings"
-
-// 	"log"
-
-// 	"net"
-// )
-
-// func main() {
-// 	arguments := os.Args
-// 	if len(arguments) == 1 {
-// 		fmt.Println("Please provide a port number!")
-// 		return
-// 	}
-
-// 	PORT := ":" + arguments[1]
-// 	l, err := net.Listen("tcp4", PORT)
-// 	if err != nil {
-// 		log.Fatal(err)
-// 	}
-// 	defer l.Close()
-
-// 	for {
-// 		c, err := l.Accept()
-// 		if err != nil {
-// 			fmt.Println(err)
-// 			return
-// 		}
-// 		go handleConnection(c)
-// 	}
-// }
-
-// func handleConnection(c net.Conn) {
-// 	fmt.Printf("Serving %s\n", c.RemoteAddr().String())
-// 	packet := make([]byte, 4096)
-// 	tmp := make([]byte, 4096)
-// 	defer c.Close()
-// 	for {
-// 		_, err := c.Read(tmp)
-// 		if err != nil {
-// 			if err != io.EOF {
-// 				fmt.Println("read error:", err)
-// 			}
-// 			println("END OF FILE")
-// 			break
-// 		}
-// 		packet = append(packet, tmp...)
-// 		if strings.Split(string(tmp), " ")[0] == "CONNECT" {
-// 			fmt.Println("connect")
-// 			packet = []byte("HTTP/1.1 200 OK\n\n")
-// 			num, _ := c.Write(packet)
-// 			fmt.Printf("Wrote back %d bytes, the payload is %s\n", num, string(packet))
-// 			packet = make([]byte, 4096)
-// 			continue
-// 		} else {
-// 			fmt.Printf("Not Connect, %s\n", strings.Split(string(tmp), " ")[0])
-// 		}
-// 	}
-// 	num, _ := c.Write(packet)
-
-// 	fmt.Printf("Wrote back %d bytes, the payload is %s\n", num, string(packet))
-
-// }
-
-// package main
-
-// import (
-// 	"fmt"
-// 	"io"
-// 	"net"
-// 	"net/http"
-// 	"time"
-// )
-
-// func handleTunneling(w http.ResponseWriter, req *http.Request) {
-// 	fmt.Printf("%+v\n\n", req)
-// 	if req.Method != http.MethodConnect {
-// 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-// 		return
-// 	}
-
-// 	// Establish connection to the target host
-// 	destConn, err := net.DialTimeout("tcp", req.Host, 10*time.Second)
-// 	if err != nil {
-// 		http.Error(w, err.Error(), http.StatusServiceUnavailable)
-// 		return
-// 	}
-// 	defer destConn.Close()
-
-// 	// Respond to the client that connection is established
-// 	w.WriteHeader(http.StatusOK)
-// 	hijacker, ok := w.(http.Hijacker)
-// 	if !ok {
-// 		http.Error(w, "Hijacking not supported", http.StatusInternalServerError)
-// 		return
-// 	}
-// 	clientConn, bufrw, err := hijacker.Hijack()
-// 	if err != nil {
-// 		http.Error(w, err.Error(), http.StatusInternalServerError)
-// 		return
-// 	}
-// 	defer clientConn.Close()
-
-// 	// Tunnel traffic between client and target
-// 	go transfer(destConn, bufrw)
-// 	go transfer(clientConn, destConn)
-// }
-
-// func transfer(destination io.WriteCloser, source io.Reader) {
-// 	defer destination.Close()
-// 	// defer source.
-// 	io.Copy(destination, source)
-// }
-
-// func main() {
-// 	// Set up handler for CONNECT requests
-// 	http.HandleFunc("/", handleTunneling)
-
-// 	// Start the server
-// 	fmt.Println("Server started on :8080")
-// 	err := http.ListenAndServe(":8080", nil)
-// 	if err != nil {
-// 		panic(err)
-// 	}
-// }
-
-// package main
-
-// import (
-// 	"bufio"
-// 	"encoding/base64"
-// 	"flag"
-// 	"io"
-// 	"log"
-// 	"net"
-// 	"net/http"
-// 	"strings"
-// 	"time"
-// )
-
-// func transfer(destination io.WriteCloser, source io.ReadCloser) {
-// 	defer destination.Close()
-// 	defer source.Close()
-// 	io.Copy(destination, source)
-// }
-
-// func main() {
-// 	host := flag.String("host", ":8080", "host proxy server")
-// 	auth := flag.String("auth", "", "authentication to for client to connect proxy, ex: username:password")
-
-// 	flag.Parse()
-
-// 	listener, err := net.Listen("tcp", *host)
-// 	if err != nil {
-// 		log.Fatal(err)
-// 	}
-// 	defer listener.Close()
-
-// 	for {
-// 		conn, err := listener.Accept()
-// 		if err != nil {
-// 			log.Fatal(err)
-// 		}
-
-// 		go func(c net.Conn) {
-// 			br := bufio.NewReader(c)
-// 			req, err := http.ReadRequest(br)
-// 			if err != nil {
-// 				log.Println("buffer: ", err)
-// 				return
-// 			}
-
-// 			if req.Method == http.MethodConnect {
-// 				if *auth != "" {
-// 					clientAuth := req.Header.Get("Proxy-Authorization")
-// 					if clientAuth == "" {
-// 						response := &http.Response{
-// 							StatusCode: http.StatusProxyAuthRequired,
-// 							ProtoMajor: 1,
-// 							ProtoMinor: 1,
-// 						}
-// 						response.Write(c)
-// 						c.Close()
-// 						return
-// 					}
-
-// 					serverAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte(*auth))
-// 					if clientAuth != serverAuth {
-// 						response := &http.Response{
-// 							StatusCode: http.StatusUnauthorized,
-// 							ProtoMajor: 1,
-// 							ProtoMinor: 1,
-// 						}
-// 						response.Write(c)
-// 						c.Close()
-// 						return
-// 					}
-// 				}
-
-// 				response := &http.Response{
-// 					StatusCode: 200,
-// 					ProtoMajor: 1,
-// 					ProtoMinor: 1,
-// 				}
-// 				response.Write(c)
-
-// 				destConn, err := net.DialTimeout("tcp", req.URL.Host, 10*time.Second)
-// 				if err != nil {
-// 					response := &http.Response{
-// 						StatusCode: http.StatusRequestTimeout,
-// 						ProtoMajor: 1,
-// 						ProtoMinor: 1,
-// 					}
-// 					response.Write(c)
-// 					return
-// 				}
-
-// 				go transfer(destConn, c)
-// 				go transfer(c, destConn)
-
-// 			} else {
-// 				response := &http.Response{
-// 					StatusCode: http.StatusRequestTimeout,
-// 					ProtoMajor: 1,
-// 					ProtoMinor: 1,
-// 					Body:       io.NopCloser(strings.NewReader("hello world")),
-// 				}
-// 				response.Write(c)
-// 				c.Close()
-// 				return
-// 			}
-// 		}(conn)
-// 	}
-// }
-
 package main
 
 import (
-	// "crypto/ecdsa"
-	// "crypto/ecdsa"
-	// "crypto/elliptic"
-	// "crypto/sha256"
-
 	"bytes"
-	"crypto/rand"
-	"crypto/rsa"
-	"crypto/x509"
-	"crypto/x509/pkix"
+	"compress/gzip"
 	"encoding/pem"
-	"log"
-	"math/big"
-	"strconv"
-	"strings"
-
-	// "crypto/ecdsa"
-	// "crypto/ecdsa"
-	"crypto/tls"
 	"fmt"
 	"io"
+	"log"
+	"math/big"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
-	// "log"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+
 	"net"
 	"net/http"
-	// "net/http/httputil"
-	// "net/url"
 )
 
-type ProxyHandler struct{}
-
-// var proxy *httputil.ReverseProxy
+// TODO - when reading chunks server might send a single chunk that spans multiple socket reads ???
+type ProxyHandler struct {
+	Port             string
+	InspectedOrigins map[string]string
+}
 
 func (p ProxyHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-
 	// fmt.Printf("%+v\n\n", req)
 	if req.Method == http.MethodConnect {
 		p.handleConnect(w, req)
 		return
 	}
-	// http.DefaultServeMux.ServeHTTP(w, req) // Handle other requests as usual
 	p.handleRequest(w, req)
 }
 
-func (p ProxyHandler) handleRequest(w http.ResponseWriter, req *http.Request) {
+func (p ProxyHandler) handleRequest(_ http.ResponseWriter, req *http.Request) {
 	//proxy.ServeHTTP(w, req)
+	log.Printf("\n\nShould never get here (?): %+v\n\n", req)
 }
 
 func (p ProxyHandler) handleConnect(w http.ResponseWriter, req *http.Request) {
-	// destConn, err := net.Dial("tcp", req.URL.Host)
-	// if err != nil {
-	// 	http.Error(w, err.Error(), http.StatusServiceUnavailable)
-	// 	return
-	// }
 	w.WriteHeader(http.StatusOK)
 	hijacker, ok := w.(http.Hijacker)
 	if !ok {
@@ -309,7 +56,8 @@ func (p ProxyHandler) handleConnect(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	if req.URL.Host != "emanor-oie.oktapreview.com:443" {
+	// if req.URL.Host != "emanor-oie.oktapreview.com:443" {
+	if _, ok := p.InspectedOrigins[req.URL.Host]; !ok {
 		fmt.Printf("Not Inspecting %s\n", req.URL.Host)
 		destConn, err := net.Dial("tcp", req.URL.Host)
 		if err != nil {
@@ -321,164 +69,8 @@ func (p ProxyHandler) handleConnect(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// fmt.Printf("readerWriter: %+v\n", readerWriter)
-	// go transfer(destConn, clientConn)
-	// go transfer(clientConn, destConn)
-
-	// testing
-
-	// cert, err := tls.LoadX509KeyPair("/Users/erikmanor/SSL/test_proxy/proxy.crt", "/Users/erikmanor/SSL/test_proxy/proxy.key")
-	// if err != nil {
-	// 	fmt.Println(err)
-	// 	return
-	// }
-	// tlsConfig := tls.Config{Certificates: []tls.Certificate{cert}}
-
 	fmt.Printf("req.URL.Host: %v\n\n", req.URL.Host)
-	//go processInspectedOrigin(clientConn, destConn, "emanor-oie.oktapreview.com:443")
 	go processInspectedOrigin(clientConn, req.URL.Host)
-	////// REMOVE Start
-	// rootCert, rootKey, rootErr := loadRootCert("/Users/erikmanor/SSL/origin/9.2024/rootCA.crt", "/Users/erikmanor/SSL/origin/9.2024/rootCA.key")
-	// if rootErr != nil {
-	// 	fmt.Printf("Error loadRootCert(): %+v\n", rootErr)
-	// }
-	// leafCert, _, leafKey, leafErr := generateLeafCertificate(rootCert, rootKey.(*rsa.PrivateKey))
-	// if leafErr != nil {
-	// 	fmt.Printf("Error generateLeafCertificate(): %+v\n", leafErr)
-	// }
-
-	// tlsCert := tls.Certificate{
-	// 	Certificate: [][]byte{leafCert.Raw},
-	// 	PrivateKey:  leafKey,
-	// 	Leaf:        leafCert,
-	// }
-	// tlsConfig := tls.Config{
-	// 	Certificates: []tls.Certificate{tlsCert},
-	// 	MaxVersion:   tls.VersionTLS12,
-	// }
-
-	// tlsConn := tls.Server(clientConn, &tlsConfig)
-	// // fmt.Printf("tlsConn: %+v\n", tlsConn)
-	// err = tlsConn.Handshake()
-	// if err != nil {
-	// 	fmt.Printf("Handshake Error: %+v\n", err)
-	// 	return
-	// }
-
-	// fmt.Printf("%+v\n", destConn)
-
-	// httpMsg := readFromConnection(tlsConn)
-	// b := httpMsg.RawMessage
-	// read := httpMsg.RawMessageLen
-	// // httpMsg = parseRequestMessage(b)
-	// parseRequestMessage(&httpMsg)
-	// httpMsg.RawMessage = b
-	// httpMsg.RawMessageLen = read
-
-	// fmt.Printf("\n\nStartLine: %v %v %v\n", httpMsg.Method, httpMsg.Uri, httpMsg.Version)
-
-	// // REAL WAY kind of
-	// originTlsConn, originErr := tls.Dial("tcp", "emanor-oie.oktapreview.com:443", nil)
-	// // originTlsConn, originErr := tls.Dial("tcp", "gw.oktamanor.net:443", nil)
-	// if originErr != nil {
-	// 	fmt.Printf("originErr: %+v\n", originErr)
-	// }
-	// originTlsConn.SetReadDeadline(time.Now().Add(time.Minute))
-	// originTlsConn.Write(b[0:read])
-
-	// httpMsg = readFromConnection(originTlsConn)
-	// // b = httpMsg.RawMessage
-	// // originRead := httpMsg.RawMessageLen
-	// // httpMsg = parseResponseMessage(b)
-	// // httpMsg.RawMessage = b
-	// // httpMsg.RawMessageLen = originRead
-	// parseResponseMessage(&httpMsg)
-
-	// fmt.Printf("\n\nStatusLine: %v %v %v\n", httpMsg.Version, httpMsg.StatusCode, httpMsg.ReasonPhrase)
-
-	// // clientWritten, clientWriteErr := tlsConn.Write(b[0:originRead])
-	// clientWritten, clientWriteErr := tlsConn.Write(httpMsg.RawMessage[0:httpMsg.RawMessageLen])
-	// fmt.Printf("clientWritten: %v, clientWriteErr: %v\n", clientWritten, clientWriteErr)
-
-	// // check for last chunk
-	// originRead, originReadErr := originTlsConn.Read(b)
-	// fmt.Printf("\nCHK LAST CHUNKoriginRead: %v, originReadErr: %v\n", originRead, originReadErr)
-	// fmt.Printf("%+v\n", string(b[0:originRead]))
-
-	// // clientWritten, clientWriteErr = tlsConn.Write([]byte("0\r\n\r\n"))
-	// clientWritten, clientWriteErr = tlsConn.Write(b[0:originRead])
-	// fmt.Printf("clientWritten END: %v, clientWriteErr END: %v\n", clientWritten, clientWriteErr)
-
-	// for {
-
-	// 	httpMsg := readFromConnection(tlsConn)
-	// 	// b := httpMsg.RawMessage
-	// 	// clientRead := httpMsg.RawMessageLen
-	// 	// httpMsg = parseRequestMessage(b)
-	// 	fmt.Printf("\n\nLENGTH 1: %v\n\n", httpMsg.RawMessageLen)
-	// 	parseRequestMessage(&httpMsg)
-	// 	fmt.Printf("\n\nLENGTH 2: %v\n\n", httpMsg.RawMessageLen)
-	// 	// httpMsg.RawMessage = b
-	// 	// httpMsg.RawMessageLen = clientRead
-
-	// 	fmt.Printf("\n\nhttps:\n%+v\n", httpMsg)
-
-	// 	// originWritten, originWriteError := originTlsConn.Write(b[0:clientRead])
-	// 	originWritten, originWriteError := originTlsConn.Write(httpMsg.RawMessage[0:httpMsg.RawMessageLen])
-	// 	fmt.Printf("originWritten: %v, originWriteError: %v\n", originWritten, originWriteError)
-	// 	// fmt.Printf("%+v\n", string(b[0:originWritten]))
-	// 	fmt.Printf("%+v\n", string(httpMsg.RawMessage[0:httpMsg.RawMessageLen]))
-	// 	if originWriteError != nil && !strings.Contains(originWriteError.Error(), "remote error: tls: user canceledBAD") {
-	// 		break
-	// 	}
-
-	// 	// var originRead int
-	// 	// var originReadErr error
-	// 	for i := 0; i < 4; i++ {
-
-	// 		httpMsg = readFromConnection(originTlsConn)
-	// 		// b = httpMsg.RawMessage
-	// 		// originRead = httpMsg.RawMessageLen
-
-	// 		// if hex.EncodeToString(b[0:originRead]) == "300d0a0d0a" {
-	// 		if hex.EncodeToString(httpMsg.RawMessage[0:httpMsg.RawMessageLen]) == "300d0a0d0a" {
-	// 			fmt.Printf("\n\nBreaking For 300d0a0d0a\n\n")
-	// 			// tlsConn.Write(b[0:originRead])
-	// 			tlsConn.Write(httpMsg.RawMessage[0:httpMsg.RawMessageLen])
-	// 			break
-	// 		}
-
-	// 		// httpMsg = parseResponseMessage(b)
-	// 		// httpMsg.RawMessage = b
-	// 		// httpMsg.RawMessageLen = originRead
-	// 		// // hexString := hex.EncodeToString(b[0:originRead])
-	// 		parseResponseMessage(&httpMsg)
-
-	// 		// clientWritten, clientWriteErr := tlsConn.Write(b[0:originRead])
-	// 		clientWritten, clientWriteErr := tlsConn.Write(httpMsg.RawMessage[0:httpMsg.RawMessageLen])
-	// 		if clientWriteErr != nil {
-	// 			fmt.Printf("clientWritten LOOP: %v", clientWriteErr)
-	// 			break
-	// 		}
-	// 		// clientWritten, clientWriteErr := tlsConn.Write(b)
-	// 		fmt.Printf("clientWritten LOOP: %v, clientWriteErr: %v\n", clientWritten, clientWriteErr)
-	// 		// fmt.Printf("Last bytes: -%v-,-%v-\n", int(b[originRead-2]), int(b[originRead-1]))
-
-	// 		// if hexString == "300d0a0d0a" {
-	// 		// 	break
-	// 		// }
-
-	// 		// httpMsg = parseResponseMessage(b[0:originRead])
-	// 		fmt.Printf("\n\nStatusLine: %v %v %v\n", httpMsg.Version, httpMsg.StatusCode, httpMsg.ReasonPhrase)
-	// 		// if originReadErr != nil && !strings.Contains(originReadErr.Error(), "remote error: tls: user canceledBAD") {
-	// 		// 	break
-	// 		// }
-
-	// 	}
-	// }
-
-	////// REMOVE END
-	// END REAL WAY
 }
 
 func processInspectedOrigin(clientConn /*, originConn*/ net.Conn, origin string) {
@@ -543,7 +135,6 @@ func processInspectedOrigin(clientConn /*, originConn*/ net.Conn, origin string)
 		httpMsg := readHttpMessage(tlsConn) // Testing
 		if httpMsg.Error != nil {
 			if httpMsg.Error.Error() == "EOF" {
-				fmt.Printf("Closing client Connection\n")
 				break
 			}
 			fmt.Printf("processInspectedOrigin client read error: %+v\n", httpMsg.Error)
@@ -568,6 +159,9 @@ func processInspectedOrigin(clientConn /*, originConn*/ net.Conn, origin string)
 			}
 		}
 
+		// fmt.Printf("ContentType: %v\nContentStart: %v\nContentEnd: %v\nRawMessageLen: %v\nRawMessage: %s\n\n", httpMsg.ContentType, httpMsg.ContentStart, httpMsg.ContentEnd, httpMsg.RawMessageLen, string(httpMsg.RawMessage))
+		printHttpMessage(&httpMsg)
+
 		//
 		// 3. Read Origin
 		// httpMsg = readFromConnection(originTlsConn)
@@ -591,28 +185,16 @@ func processInspectedOrigin(clientConn /*, originConn*/ net.Conn, origin string)
 			if chunkErr != nil {
 				break
 			}
-			// for {
-			// 	httpMsg = readFromConnection(originTlsConn)
-			// 	processNextChunk(&httpMsg)
-			// 	if httpMsg.LastChunk {
-			// 		clientWritten, clientWriteErr = tlsConn.Write([]byte{ZERO, CR, LF, CR, LF})
-			// 		if clientWriteErr != nil {
-			// 			fmt.Printf("clientWritten Last Chunk Error: %v", clientWriteErr)
-			// 			//break
-			// 		}
-			// 		fmt.Printf("clientWritten Last Chunk: %v, clientWriteErr: %v\n", clientWritten, clientWriteErr)
-			// 		break
-			// 	}
-
-			// 	clientWritten, clientWriteErr = tlsConn.Write(httpMsg.RawMessage[0:httpMsg.ContentEnd])
-			// 	if clientWriteErr != nil {
-			// 		fmt.Printf("client Chunk Written Error: %v", clientWriteErr)
-			// 		//break
-			// 	}
-			// 	fmt.Printf("client Chunk Written: %v, clientWriteErr: %v\n", clientWritten, clientWriteErr)
-			// }
 		}
+
+		// fmt.Printf("ContentType: %v\nContentStart: %v\nContentEnd: %v\nRawMessageLen: %v\nRawMessage: %s\n\n", httpMsg.ContentType, httpMsg.ContentStart, httpMsg.ContentEnd, httpMsg.RawMessageLen, string(httpMsg.RawMessage))
+		printHttpMessage(&httpMsg)
 	}
+}
+
+func printHttpMessage(httpMsg *httpMessage) {
+	body := getBodyAsString(httpMsg)
+	fmt.Printf("\n%s\n\n%s\n", string(httpMsg.RawMessage[0:httpMsg.HeaderEnd]), body)
 }
 
 type contentType int
@@ -639,17 +221,8 @@ const (
 	LOWER_A byte = 0x61
 	LOWER_F byte = 0x66
 
-	BUFFER_INC int = 16384 // 16k
+	BUFFER_INC int = 116384 // 16k
 )
-
-func test() {
-	b := []byte("\r\n\r\n")
-	fmt.Printf("== \\r = %v\n", b[0] == CR)
-	fmt.Printf("== \\n = %v\n", b[1] == CR)
-	fmt.Printf("== \\r = %v\n", b[0] == LF)
-	fmt.Printf("== \\n = %v\n", b[1] == LF)
-	// CRLF
-}
 
 type httpMessage struct {
 	// req / stat line
@@ -666,6 +239,8 @@ type httpMessage struct {
 	ContentEnd,
 	HeaderEnd int
 
+	ContentEncoding string
+
 	RawMessage    []byte
 	RawMessageLen int
 
@@ -674,9 +249,48 @@ type httpMessage struct {
 	Error error
 }
 
-// func continueReadFromConnection(tlsConn *tls.Conn, httpMsg *httpMessage) {
-// 	//con
-// }
+func main() {
+	// test()
+	if len(os.Args) < 2 {
+		log.Fatal("No port specified.")
+	}
+	proxyPort := fmt.Sprintf(":%s", os.Args[1])
+	origins := map[string]string{}
+	if len(os.Args) > 2 {
+		for _, host := range os.Args[2:] {
+			parts := strings.Split(host, ":")
+			port := "443"
+			if len(parts) > 1 {
+				port = parts[1]
+			}
+			origins[fmt.Sprintf("%s:%s", parts[0], port)] = port
+		}
+	}
+
+	proxyHandler := ProxyHandler{
+		Port:             proxyPort,
+		InspectedOrigins: origins,
+	}
+	server := &http.Server{
+		Addr:    proxyPort,
+		Handler: proxyHandler,
+	}
+
+	log.Printf("Starting simple-proxy, listening on %s\n", proxyPort)
+	err := server.ListenAndServe()
+	if err != nil {
+		panic(err)
+	}
+}
+
+func test() {
+	b := []byte("\r\n\r\n")
+	fmt.Printf("== \\r = %v\n", b[0] == CR)
+	fmt.Printf("== \\n = %v\n", b[1] == CR)
+	fmt.Printf("== \\r = %v\n", b[0] == LF)
+	fmt.Printf("== \\n = %v\n", b[1] == LF)
+	// CRLF
+}
 
 func readHttpMessage(tlsConn *tls.Conn) httpMessage {
 	// Max tcp packet size is 65k, typical network equipment restrict MTU to 1500 bytes
@@ -691,7 +305,7 @@ func readHttpMessage(tlsConn *tls.Conn) httpMessage {
 		// until all headers read
 		r, readErr := tlsConn.Read(b)
 		buffer.Write(b[0:r])
-		fmt.Printf("readHttpHeaders: %v, ReadErr: %v\n", r, readErr)
+		// fmt.Printf("readHttpHeaders: %v, ReadErr: %v\n", r, readErr)
 		// fmt.Printf("%+v\n", string(b))
 		if readErr != nil {
 			httpMsg.Error = readErr
@@ -704,6 +318,7 @@ func readHttpMessage(tlsConn *tls.Conn) httpMessage {
 		read += r
 
 	}
+	httpMsg.HeaderEnd = headersEnd
 
 	// Parse Headers
 	httpMsg.Headers = map[string]string{}
@@ -776,8 +391,6 @@ func readHttpMessage(tlsConn *tls.Conn) httpMessage {
 }
 
 func readFromConnection(tlsConn *tls.Conn) httpMessage {
-	// Max tcp packet size is 65k, typical network equipment restrict MTU to 1500 bytes
-	// use 2048, if greater copy to bytebuffer as needed
 	b := make([]byte, BUFFER_INC)
 	httpMsg := httpMessage{}
 
@@ -815,105 +428,6 @@ func readFromConnection(tlsConn *tls.Conn) httpMessage {
 
 	return httpMsg
 }
-
-// func parseRequestMessage(httpMsg *httpMessage) {
-// 	// func parseRequestMessage(msg []byte) httpMessage { //, msgL int) httpMessage {
-// 	// Start Line
-// 	// httpMsg := httpMessage{}
-// 	msg := httpMsg.RawMessage
-// 	httpMsg.Headers = map[string]string{}
-// 	index := 0
-// 	if msg[1] == LF {
-// 		if msg[0] == CR {
-// 			index = 2
-// 		} else {
-// 			httpMsg.Error = fmt.Errorf("invalid start line, LF not followed by CR")
-// 			return //httpMsg
-// 		}
-// 	}
-// 	index = readRequestStartLine(msg, index, httpMsg)
-// 	if httpMsg.Error != nil {
-// 		log.Fatalf("readRequestStartLine: %v, index: %v\n\n", httpMsg.Error, index)
-// 		return //httpMsg
-// 	}
-
-// 	// Headers
-// 	index += parseHeaders(msg[index:], httpMsg)
-// 	if httpMsg.Error != nil {
-// 		log.Fatalf("parseHeaders: %v, index: %v\n\n", httpMsg.Error, index)
-// 		return //httpMsg
-// 	}
-// 	fmt.Println(index)
-
-// 	// Body
-// 	parseBody(msg, index, httpMsg)
-
-// 	// fmt.Printf("\n\n%+v\n\n", httpMsg)
-
-// 	//return httpMsg
-// }
-
-// // func parseResponseMessage(msg []byte) httpMessage {
-// func parseResponseMessage(httpMsg *httpMessage) {
-// 	// Status Line
-// 	//httpMsg := httpMessage{}
-// 	httpMsg.Headers = map[string]string{}
-// 	msg := httpMsg.RawMessage
-// 	index := 0
-// 	if msg[1] == LF {
-// 		if msg[0] == CR {
-// 			index = 2
-// 		} else {
-// 			httpMsg.Error = fmt.Errorf("invalid status-line, LF not followed by CR")
-// 			return //httpMsg
-// 		}
-// 	}
-// 	index = processStartLine(msg, httpMsg)
-// 	if httpMsg.Error != nil {
-// 		log.Fatalf("readRequestStartLine: %v, index: %v\n\n", httpMsg.Error, index)
-// 		return //httpMsg
-// 	}
-
-// 	// Headers
-// 	index += parseHeaders(msg[index:], httpMsg)
-// 	if httpMsg.Error != nil {
-// 		log.Fatalf("parseHeaders: %v, index: %v\n\n", httpMsg.Error, index)
-// 		return //httpMsg
-// 	}
-// 	fmt.Println(index)
-
-// 	parseBody(msg, index, httpMsg)
-
-// 	// fmt.Printf("\n\n%+v\n\n", httpMsg)
-// 	// return httpMsg
-// }
-
-// func parseBody(msg []byte, index int, httpMsg *httpMessage) {
-// 	if httpMsg.ContentType == CHUNKED {
-// 		chunkSize := getHexDigit(msg[index:])
-// 		if chunkSize == -1 {
-// 			// handle error
-// 		}
-// 		bodyStart, err := readNextLine(msg[index:])
-// 		if err != nil {
-// 			//handle error
-// 		}
-// 		bodyStart++
-// 		httpMsg.ContentStart = index + bodyStart
-// 		httpMsg.ContentEnd = httpMsg.ContentStart + chunkSize
-// 		fmt.Printf("\n\n--%+v--\n\n\n", string(msg[httpMsg.ContentStart:httpMsg.ContentEnd]))
-// 	} else if httpMsg.ContentType == LENGTH {
-// 		// bodyStart, err := readNextLine(msg[index:])
-// 		// if err != nil {
-// 		// 	//handle error
-// 		// }
-// 		// bodyStart++
-// 		httpMsg.ContentStart = index
-// 		httpMsg.ContentEnd = httpMsg.ContentStart + httpMsg.ContentEnd
-// 		fmt.Printf("\n\n--%+v--\n\n\n", string(msg[httpMsg.ContentStart:httpMsg.ContentEnd]))
-// 	}
-// 	httpMsg.RawMessage = msg
-// }
 
 func keepChunking(readTlsConn, writeTlsConn *tls.Conn) error {
 	// TODO CORRECTLY - see mileage from this
@@ -982,7 +496,7 @@ func processNextChunk(httpMsg *httpMessage) {
 	bodyStart++
 	httpMsg.ContentStart = bodyStart
 	httpMsg.ContentEnd = httpMsg.ContentStart + chunkSize + 2 // add CRLF with +2
-	fmt.Printf("\n\n--%+v--\n\n\n", string(httpMsg.RawMessage[httpMsg.ContentStart:httpMsg.ContentEnd]))
+	// fmt.Printf("\n\n--%+v--\n\n\n", string(httpMsg.RawMessage[httpMsg.ContentStart:httpMsg.ContentEnd]))
 }
 
 func isLastChunk(b []byte) bool {
@@ -1000,37 +514,6 @@ func isLastChunk(b []byte) bool {
 	}
 	return false
 }
-
-// func readRequestStartLine(msg []byte, index int, httpMsg *httpMessage) int {
-// 	newIndex := bytes.IndexByte(msg[index:], LF)
-// 	if msg[newIndex-1] != CR {
-// 		httpMsg.Error = fmt.Errorf("invalid header, LF not followed by CR")
-// 		return -1
-// 	}
-
-// 	// Using strict SP https://httpwg.org/specs/rfc9112.html#request.line
-// 	parts := bytes.Split(msg[index:newIndex], []byte{SP})
-// 	if len(parts) != 3 {
-// 		httpMsg.Error = fmt.Errorf("invalid start line, %s", string(msg[index:newIndex]))
-// 		return -1
-// 	}
-
-// 	// only support specific methods
-// 	method := string(parts[0])
-// 	switch method {
-// 	case "GET", "HEAD", "POST", "PUT", "DELETE", "OPTIONS":
-// 		httpMsg.Method = method
-// 	default:
-// 		httpMsg.Error = fmt.Errorf("invalide method: %s", method)
-// 		return -1
-// 	}
-
-// 	// not checking target / version for now
-// 	httpMsg.Uri = string(parts[1])
-// 	httpMsg.Version = string(parts[2])
-
-// 	return newIndex + 1
-// }
 
 func processStartLine(msg []byte, httpMsg *httpMessage) int {
 	newIndex := bytes.IndexByte(msg, LF)
@@ -1065,7 +548,7 @@ func processStartLine(msg []byte, httpMsg *httpMessage) int {
 }
 
 func parseHeaders(msg []byte, httpMsg *httpMessage) int {
-	fmt.Printf("\n\n~%v~\n\n", string(msg))
+	// fmt.Printf("\n\n~%v~\n\n", string(msg))
 	curIndex := 0
 	for {
 		newIndex, err := readNextLine(msg[curIndex:])
@@ -1102,11 +585,14 @@ func parseHeaders(msg []byte, httpMsg *httpMessage) int {
 		// TODO Headers should be [][] to handle multiple set-cookie in response
 		httpMsg.Headers[key] = val
 
-		if strings.ToLower(key) == "content-length" {
+		lowerKey := strings.ToLower(key)
+		if lowerKey == "content-length" {
 			httpMsg.ContentEnd, _ = strconv.Atoi(val)
 			httpMsg.ContentType = LENGTH
-		} else if strings.ToLower(key) == "transfer-encoding" {
+		} else if lowerKey == "transfer-encoding" {
 			httpMsg.ContentType = CHUNKED
+		} else if lowerKey == "content-encoding" {
+			httpMsg.ContentEncoding = strings.ToLower(val)
 		}
 
 		curIndex = newIndex + 1
@@ -1168,25 +654,53 @@ func isNewLine(cr, lf byte) bool {
 	}
 }
 
+func getBodyAsString(httpMsg *httpMessage) string {
+	if httpMsg.ContentType == NONE {
+		return ""
+	}
+
+	// buf := bytes.Buffer{}
+	// if err := json.Indent(&buf, b, "", "   "); err != nil {
+	// check content encoding
+	if httpMsg.ContentEnd > httpMsg.ContentStart {
+		var compressionReader io.Reader
+		var err error
+		reader := bytes.NewReader(httpMsg.RawMessage[httpMsg.ContentStart:httpMsg.ContentEnd])
+
+		if httpMsg.ContentEncoding == "gzip" { //|| strings.ToLower(encoding) == "gzip" {
+			compressionReader, err = gzip.NewReader(reader)
+			if err != nil {
+				fmt.Printf("Error Getting gzip Reader: %s\n", err)
+			}
+		} /*else if encoding == "br" {
+			compressionReader = brotli.NewReader(reader)
+		} else if encoding == "zstd" {
+			compressionReader, err = zstd.NewReader(reader)
+			if err != nil {
+				fmt.Printf("Error Getting zstd Reader: %s\n", err)
+			}
+		}*/
+
+		if compressionReader != nil {
+			bytesBody, _ := io.ReadAll(compressionReader)
+			return string(bytesBody)
+		} else {
+			return string(httpMsg.RawMessage[httpMsg.ContentStart:httpMsg.ContentEnd])
+		}
+		// } else {
+		// 	bytesBody = buf.Bytes()
+		// }
+	}
+
+	return ""
+}
+
 func transfer(destination io.WriteCloser, source io.ReadCloser) {
 	defer destination.Close()
 	defer source.Close()
 	_, err := io.Copy(destination, source)
 	if err != nil {
 		// fmt.Println(err)
-	}
-}
-
-func main() {
-	test()
-	proxyHandler := ProxyHandler{}
-	server := &http.Server{
-		Addr:    ":8080",
-		Handler: proxyHandler,
-	}
-	err := server.ListenAndServe()
-	if err != nil {
-		panic(err)
 	}
 }
 
