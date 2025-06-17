@@ -130,71 +130,75 @@ func processInspectedOrigin(clientConn /*, originConn*/ net.Conn, origin string)
 
 	// Process Request
 	for {
-		// 1. Read Client
-		// httpMsg := readFromConnection(tlsConn)
-		httpMsg := readHttpMessage(tlsConn) // Testing
+		//
+		// Read from Client
+		//
+		httpMsg := httpMessage{SrcConn: tlsConn, DstConn: originTlsConn}
+		readRequest(&httpMsg)
 		if httpMsg.Error != nil {
 			if httpMsg.Error.Error() == "EOF" {
+				log.Println("client readRequest EOF..")
 				break
-			}
-			fmt.Printf("processInspectedOrigin client read error: %+v\n", httpMsg.Error)
-			break
-		}
-		// parseRequestMessage(&httpMsg)
-		fmt.Printf("\n\nStartLine: %v %v %v\n", httpMsg.Method, httpMsg.Uri, httpMsg.Version)
-
-		//
-		// 2. Write Origin
-		originWritten, originWrittenErr := originTlsConn.Write(httpMsg.RawMessage[0:httpMsg.RawMessageLen])
-		if originWrittenErr != nil || originWritten != httpMsg.RawMessageLen {
-			fmt.Printf("originTlsConn.Write Error: %v, written: %v:%v\n", originWrittenErr, originWritten, httpMsg.RawMessageLen)
-		}
-		fmt.Printf("clientWritten: %v, clientWriteErr: %v\n", originWritten, originWrittenErr)
-		// 1.5 / 2.5 if chunked continue to read/write
-		if httpMsg.ContentType == CHUNKED {
-			// TODO
-			chunkErr := keepChunking(tlsConn, originTlsConn)
-			if chunkErr != nil {
-				break
+			} else {
+				log.Fatal(httpMsg.Error)
 			}
 		}
 
-		// fmt.Printf("ContentType: %v\nContentStart: %v\nContentEnd: %v\nRawMessageLen: %v\nRawMessage: %s\n\n", httpMsg.ContentType, httpMsg.ContentStart, httpMsg.ContentEnd, httpMsg.RawMessageLen, string(httpMsg.RawMessage))
+		fmt.Printf("\n\nStatusLine 1.0: %v %v %v\n", httpMsg.Version, httpMsg.StatusCode, httpMsg.ReasonPhrase)
 		printHttpMessage(&httpMsg)
 
 		//
-		// 3. Read Origin
-		// httpMsg = readFromConnection(originTlsConn)
-		// parseResponseMessage(&httpMsg)
-		httpMsg = readHttpMessage(originTlsConn) // Testing
+		// Write to Origin
+		//
+		writeRequest(&httpMsg)
+		if httpMsg.Error != nil {
+			log.Fatalf("origin writeRequest error, %s\n", httpMsg.Error.Error())
+		}
+
+		//
+		// Read from Origin
+		//
+		httpMsg = httpMessage{SrcConn: originTlsConn, DstConn: tlsConn}
+		readRequest(&httpMsg) // REALLY Testing
+		if httpMsg.Error != nil {
+			if httpMsg.Error.Error() == "EOF" {
+				log.Println("origin readRequest EOF..")
+				break
+			} else {
+				log.Fatal(httpMsg.Error)
+			}
+		}
+
 		fmt.Printf("\n\nStatusLine 3.0: %v %v %v\n", httpMsg.Version, httpMsg.StatusCode, httpMsg.ReasonPhrase)
-		// fmt.Printf("httpMsg.RawMessage[0:100]: %v\n", string(httpMsg.RawMessage[0:100]))
+		printHttpMessage(&httpMsg)
+
 		//
-		// 4. Write Client
-		clientWritten, clientWriteErr := tlsConn.Write(httpMsg.RawMessage[0:httpMsg.RawMessageLen])
-		if clientWriteErr != nil {
-			fmt.Printf("clientWritten Error: %v", clientWriteErr)
-			//break
-		}
-		// clientWritten, clientWriteErr := tlsConn.Write(b)
-		fmt.Printf("clientWritten: %v, clientWriteErr: %v\n", clientWritten, clientWriteErr)
-		// 3.5 / 4.5 if chunked continue to read/write
-		if httpMsg.ContentType == CHUNKED {
-			// TODO CORRECTLY - see mileage from this
-			chunkErr := keepChunking(originTlsConn, tlsConn)
-			if chunkErr != nil {
-				break
-			}
+		// Write from Client
+		//
+		writeRequest(&httpMsg)
+		if httpMsg.Error != nil {
+			log.Fatalf("client writeRequest error, %s\n", httpMsg.Error.Error())
 		}
 
-		// fmt.Printf("ContentType: %v\nContentStart: %v\nContentEnd: %v\nRawMessageLen: %v\nRawMessage: %s\n\n", httpMsg.ContentType, httpMsg.ContentStart, httpMsg.ContentEnd, httpMsg.RawMessageLen, string(httpMsg.RawMessage))
-		printHttpMessage(&httpMsg)
 	}
 }
 
 func printHttpMessage(httpMsg *httpMessage) {
-	body := getBodyAsString(httpMsg)
-	fmt.Printf("\n%s\n\n%s\n", string(httpMsg.RawMessage[0:httpMsg.HeaderEnd]), body)
+	var body string
+	// fmt.Printf("\n\nhttpMsg.ContentEncoding = %s\n\n", httpMsg.ContentEncoding)
+
+	if httpMsg.ContentEncoding == "gzip" {
+		reader := bytes.NewReader(httpMsg.BodyBytesBuffer.Bytes())
+		compressionReader, err := gzip.NewReader(reader)
+		if err != nil {
+			fmt.Printf("Error Getting gzip Reader: %s\n", err)
+		}
+		bytesBody, _ := io.ReadAll(compressionReader)
+		body = string(bytesBody)
+	} else {
+		body = httpMsg.BodyBytesBuffer.String()
+	}
+	fmt.Printf("~~~~\n%s\n\n%s\n~~~~", httpMsg.HeadersBytesBuffer.String(), body) //httpMsg.BodyBytesBuffer.String())
 }
 
 type contentType int
@@ -224,6 +228,65 @@ const (
 	BUFFER_INC int = 116384 // 16k
 )
 
+// 0x42 = CR or COLON or LF
+// 0x01 = hex
+// 0x02 = space (SP / HTAB)
+
+var PARSE_FLAGS []byte = []byte{
+	//0 - F
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0x42, 0, 0, 0x42, 0, 0, // 15 (0F)
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, // 31 (1F)
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 47 (2F)
+	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0x42, 0, 0, 0, 0, 0, // 63 (3F)
+	0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 79 (4F)
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 95 (5F)
+	0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 111 (6F)
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 127 (7F)
+
+	// 128-255
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+}
+
+type processingStage int
+
+const (
+	START_LINE processingStage = iota
+	HEADERS
+	CHUNKED_DATA
+	CHUNKED_DATA_END
+	CONTENT_DATA
+	CHUNK_SIZE
+	SINGLE_CRLF
+	FINAL_CHUNK
+	DONE
+)
+
+type processingState struct {
+	// still processing
+	Processing bool
+	// what is being looked for
+	FindToken byte
+	// last byte
+	LastToken byte
+	// current token
+	Buffer bytes.Buffer
+	// bytes to process
+	SrcBytes []byte
+	// SrcBytes Read
+	// SrcBytesRead int
+	// require another socket read
+	NeedSrcBytes bool
+	// bits needed
+	NeededSrcBytes int
+	// // part of http message being processed
+	// Stage processingStage
+	ProcessingHeaderKey,
+	ProcessingHeaderVal bool
+}
+
 type httpMessage struct {
 	// req / stat line
 	Method,
@@ -232,24 +295,340 @@ type httpMessage struct {
 	StatusCode,
 	ReasonPhrase string
 
+	Method2,
+	Uri2,
+	Version2,
+	StatusCode2,
+	ReasonPhrase2,
+	StartStatusLine []byte
+
 	Headers map[string]string
 
 	ContentType contentType
 	ContentStart,
 	ContentEnd,
-	HeaderEnd int
+	HeaderEnd,
+	ContentLength,
+	ChunkSize int
 
 	ContentEncoding string
 
-	RawMessage    []byte
-	RawMessageLen int
+	RawMessage      []byte
+	RawMessageLen   int
+	RawBytesBuffer, // remove later?
+	StartLine,
+	HeadersBytesBuffer,
+	BodyBytesBuffer,
+	ChunkSizeBytesBuffer bytes.Buffer
 
-	LastChunk bool
+	LastChunk,
+	IsChunkPart bool
+
+	ProcessingState processingState
+	// part of http message being processed
+	Stage processingStage
+
+	SrcConn,
+	DstConn *tls.Conn
 
 	Error error
 }
 
+func writeRequest(httpMsg *httpMessage) {
+	// fmt.Printf("\n\n\n\n Message:\n\n")
+
+	httpMsg.DstConn.Write(httpMsg.StartStatusLine)
+	httpMsg.HeadersBytesBuffer.Write([]byte{CR, LF, CR, LF})
+	httpMsg.DstConn.Write(httpMsg.HeadersBytesBuffer.Bytes())
+
+	// fmt.Printf("%s", string(httpMsg.StartStatusLine))
+	// fmt.Printf("%s", httpMsg.HeadersBytesBuffer.String())
+	// fmt.Println(httpMsg.ContentType)
+
+	if httpMsg.ContentType == CHUNKED {
+		/*
+		 * there is no real reason to chunk response since inspected messages need to be fully digested.
+		 * maybe add gaurdrail for  messages > then some size to not run into memory issues if a giant file
+		 * is inspected, etc. Not worry for now and sending as a single chunk.
+		 * Technically could also just send as content-length instead, but what client to received same
+		 * transfer encoding as origin sent.
+		 */
+		httpMsg.DstConn.Write([]byte(fmt.Sprintf("%x", httpMsg.BodyBytesBuffer.Len())))
+		httpMsg.DstConn.Write([]byte{CR, LF})
+		httpMsg.DstConn.Write(httpMsg.BodyBytesBuffer.Bytes())
+		httpMsg.DstConn.Write([]byte{CR, LF})
+		httpMsg.DstConn.Write([]byte{ZERO, CR, LF, CR, LF})
+		// fmt.Printf("=-%s-=\n", httpMsg.BodyBytesBuffer.String())
+	} else if httpMsg.ContentType == LENGTH {
+		httpMsg.DstConn.Write(httpMsg.BodyBytesBuffer.Bytes())
+		// fmt.Printf("=-%s-=\n", httpMsg.BodyBytesBuffer.String())
+	}
+}
+
+func readMoreSrcBytes(httpMsg *httpMessage) {
+	var srcBytes []byte
+	var err error
+	var read int
+	if httpMsg.Stage == CHUNKED_DATA || httpMsg.Stage == CONTENT_DATA {
+		srcBytes = make([]byte, httpMsg.ProcessingState.NeededSrcBytes)
+		for i := 0; i < httpMsg.ProcessingState.NeededSrcBytes; {
+			// fmt.Printf("\\nnreadMoreSrcBytes - NeededSrcBytes: %v\n", httpMsg.ProcessingState.NeededSrcBytes)
+			j, err := httpMsg.SrcConn.Read(srcBytes[i:])
+			// fmt.Printf("readMoreSrcBytes - j: %v, i: %v\n\n", j, j+i)
+			i += j
+			read = i
+			if err != nil {
+				break
+			}
+		}
+	} else {
+		srcBytes = make([]byte, BUFFER_INC)
+		read, err = httpMsg.SrcConn.Read(srcBytes)
+	}
+
+	if err != nil {
+		httpMsg.Error = err
+	}
+	httpMsg.ProcessingState.SrcBytes = srcBytes[0:read]
+	// fmt.Print(string(httpMsg.ProcessingState.SrcBytes))
+}
+
+func readRequest(httpMsg *httpMessage) {
+	httpMsg.Headers = map[string]string{}
+	headerKey := bytes.Buffer{}
+	headerVal := bytes.Buffer{}
+
+	httpMsg.ProcessingState.Processing = true
+	httpMsg.ContentType = NONE
+	httpMsg.Stage = START_LINE
+
+	readMoreSrcBytes(httpMsg)
+	if httpMsg.Error != nil {
+		return
+	}
+
+	for httpMsg.ProcessingState.Processing {
+
+		for i, b := range httpMsg.ProcessingState.SrcBytes {
+			// fmt.Printf("%v - string: %v - stage: %v - byte: %v\n", i, string(b), httpMsg.Stage, b)
+			switch httpMsg.Stage {
+			case START_LINE:
+				// TODO - Inline like Headers, remove processStartLine2
+				if b == CR {
+					httpMsg.ProcessingState.FindToken = LF
+				} else if b == LF {
+					if httpMsg.ProcessingState.LastToken == CR {
+						// done processing start/status line
+						processStartLine2(httpMsg.ProcessingState.SrcBytes[0:i-1], httpMsg)
+						if httpMsg.Error != nil {
+							return
+						}
+						httpMsg.Stage = HEADERS
+						// httpMsg.ProcessingState.FindToken = CR
+						httpMsg.ProcessingState.ProcessingHeaderKey = true
+						httpMsg.ProcessingState.FindToken = 0x42 //COLON
+					} else {
+						httpMsg.Error = fmt.Errorf("error: start-line LF not preceeded by CR")
+						return
+					}
+				}
+				// }
+
+			case FINAL_CHUNK:
+				// first CRLF should have been procrssed in CHUNK_SIZE, ignore chunk-ext and stop at next CRLF
+				httpMsg.ProcessingState.Buffer.WriteByte(b)
+				if bytes.Contains(httpMsg.ProcessingState.Buffer.Bytes(), []byte{CR, LF}) {
+					httpMsg.Stage = DONE
+					httpMsg.ProcessingState.Processing = false
+				}
+
+			case CHUNK_SIZE:
+				if httpMsg.ProcessingState.FindToken == LF {
+					chunkSize, err := strconv.ParseInt(httpMsg.ChunkSizeBytesBuffer.String(), 16, 64)
+					if err != nil {
+						httpMsg.Error = fmt.Errorf("error: getting chunk size for: %v, %v", httpMsg.ChunkSizeBytesBuffer.String(), err)
+						return
+					}
+					httpMsg.ChunkSize = int(chunkSize)
+					httpMsg.ProcessingState.NeededSrcBytes = int(chunkSize)
+					if chunkSize == 0 {
+						httpMsg.Stage = FINAL_CHUNK
+						httpMsg.ProcessingState.Buffer = bytes.Buffer{}
+					} else {
+						httpMsg.Stage = CHUNKED_DATA
+					}
+					// fmt.Printf("-- ChunkAize: %v\n", chunkSize)
+				} else if b == CR {
+					httpMsg.ProcessingState.FindToken = LF
+				} else {
+					if PARSE_FLAGS[b] != httpMsg.ProcessingState.FindToken {
+						// expected Hex
+						httpMsg.Error = fmt.Errorf("error: expected hex digit reading chunk size, found: %v", string(b))
+						return
+					}
+					httpMsg.ChunkSizeBytesBuffer.WriteByte(b)
+				}
+
+			case CHUNKED_DATA:
+				httpMsg.BodyBytesBuffer.WriteByte(b)
+				httpMsg.ProcessingState.NeededSrcBytes--
+				if httpMsg.ProcessingState.NeededSrcBytes <= 0 {
+					httpMsg.Stage = CHUNKED_DATA_END
+				}
+
+			case CHUNKED_DATA_END:
+				// fmt.Printf("CHUHNK %v:%v\n", httpMsg.ProcessingState.LastToken, b)
+				if b == LF {
+					if httpMsg.ProcessingState.LastToken != CR {
+						httpMsg.Error = fmt.Errorf("error: expected CRLF eng of chunk, found: %v%v", httpMsg.ProcessingState.LastToken, b)
+						return
+					}
+					httpMsg.Stage = CHUNK_SIZE
+					httpMsg.ChunkSizeBytesBuffer.Reset()
+					httpMsg.ProcessingState.FindToken = 0x01
+					// fmt.Printf("i=%v, srcBytes Size: %v\n", i, len(httpMsg.ProcessingState.SrcBytes))
+				} else if b == CR {
+					httpMsg.ProcessingState.FindToken = LF
+				} else {
+					httpMsg.Error = fmt.Errorf("error: expected CRLF, found: %v - %v", httpMsg.ProcessingState.LastToken, b)
+					return
+				}
+
+			case CONTENT_DATA:
+				httpMsg.BodyBytesBuffer.Write(httpMsg.ProcessingState.SrcBytes[i:])
+				if httpMsg.BodyBytesBuffer.Len() < httpMsg.ContentLength {
+					httpMsg.ProcessingState.NeededSrcBytes = httpMsg.ContentLength - httpMsg.BodyBytesBuffer.Len()
+					readMoreSrcBytes(httpMsg)
+					if httpMsg.Error != nil {
+						return
+					}
+					httpMsg.BodyBytesBuffer.Write(httpMsg.ProcessingState.SrcBytes)
+				}
+				return
+
+			case HEADERS:
+				// looking for end of headers
+				// if b == httpMsg.ProcessingState.FindToken {
+				if PARSE_FLAGS[b] == httpMsg.ProcessingState.FindToken {
+					if b == CR {
+						httpMsg.ProcessingState.FindToken = 0x42 //LF
+					} else if b == LF {
+						if httpMsg.ProcessingState.LastToken == CR {
+							// check if this is the second
+							l := httpMsg.HeadersBytesBuffer.Len()
+							if l > 2 {
+								lastThree := httpMsg.HeadersBytesBuffer.Bytes()
+								if bytes.Contains(lastThree[l-3:], []byte{CR, LF, CR}) {
+									httpMsg.HeadersBytesBuffer.Truncate(l - 3)
+									httpMsg.ProcessingState.ProcessingHeaderKey = false
+									httpMsg.ProcessingState.ProcessingHeaderVal = false
+									// fmt.Printf("ContentType: %v, ContentLength: %v\n", httpMsg.ContentType, httpMsg.ContentLength)
+									if httpMsg.ContentType == CHUNKED {
+										httpMsg.ProcessingState.FindToken = 0x01
+										httpMsg.Stage = CHUNK_SIZE
+										httpMsg.ProcessingState.NeedSrcBytes = true
+										httpMsg.ChunkSizeBytesBuffer = bytes.Buffer{}
+									} else if httpMsg.ContentType == LENGTH && httpMsg.ContentLength > 0 {
+										httpMsg.Stage = CONTENT_DATA
+										httpMsg.ProcessingState.NeededSrcBytes = httpMsg.ContentLength
+										httpMsg.ProcessingState.NeedSrcBytes = true
+									} else {
+										httpMsg.ProcessingState.Processing = false
+										httpMsg.Stage = DONE
+									}
+
+									continue
+								} else {
+									// assume is not end of headers, just end of header
+									// not white space checking (TODO)
+									key := string(bytes.TrimSpace(headerKey.Bytes()))
+									val := string(bytes.TrimSpace(headerVal.Bytes()))
+									httpMsg.Headers[key] = val
+									httpMsg.ProcessingState.ProcessingHeaderKey = true
+									httpMsg.ProcessingState.ProcessingHeaderVal = false
+									lowerKey := strings.ToLower(key)
+									if lowerKey == "content-length" {
+										httpMsg.ContentLength, _ = strconv.Atoi(val)
+										httpMsg.ContentType = LENGTH
+									} else if lowerKey == "transfer-encoding" {
+										httpMsg.ContentType = CHUNKED
+									} else if lowerKey == "content-encoding" {
+										httpMsg.ContentEncoding = strings.ToLower(val)
+									}
+									headerKey.Reset()
+									headerVal.Reset()
+									httpMsg.ProcessingState.FindToken = 0x42 //COLON
+									// fmt.Printf("@@-%s : %s-@@\n", key, val)
+								}
+							}
+						} else {
+							httpMsg.Error = fmt.Errorf("error: http header LF not preceeded by CR:\n%s\n", httpMsg.HeadersBytesBuffer.String())
+							return
+						}
+					} else if b == COLON {
+						httpMsg.ProcessingState.ProcessingHeaderKey = false
+						httpMsg.ProcessingState.ProcessingHeaderVal = true
+						httpMsg.ProcessingState.FindToken = 0x42 //CR
+					}
+				} else if httpMsg.ProcessingState.ProcessingHeaderKey {
+					headerKey.WriteByte(b)
+				} else if httpMsg.ProcessingState.ProcessingHeaderVal {
+					headerVal.WriteByte(b)
+				}
+				httpMsg.HeadersBytesBuffer.WriteByte(b)
+
+			case SINGLE_CRLF:
+
+			case DONE:
+				httpMsg.ProcessingState.Processing = false
+				httpMsg.ProcessingState.NeedSrcBytes = false
+				return
+			}
+
+			httpMsg.ProcessingState.LastToken = b
+		}
+		// fmt.Printf("\n\nONE\n\n")
+		if httpMsg.ProcessingState.Processing { //&& httpMsg.ProcessingState.NeedSrcBytes {
+			readMoreSrcBytes(httpMsg)
+			// fmt.Printf("\n\nTWO\n\n")
+			if httpMsg.Error != nil {
+				return
+			}
+		}
+	}
+}
+
+func processStartLine2(startLine []byte, httpMsg *httpMessage) {
+	httpMsg.StartLine.Write(startLine)
+	// Using strict SP https://httpwg.org/specs/rfc9112.html#request.line
+	// Using strict SP https://httpwg.org/specs/rfc9112.html#status.line
+	parts := bytes.Split(startLine, []byte{SP})
+	if len(parts) < 3 {
+		httpMsg.Error = fmt.Errorf("invalid start-line, %s", string(startLine))
+		return
+	}
+
+	msgType := string(parts[0])
+	if strings.Index(msgType, "HTTP/") == 0 {
+		httpMsg.Version2 = parts[0]
+		httpMsg.StatusCode2 = parts[1]
+		httpMsg.ReasonPhrase2 = parts[2]
+	} else if msgType == "GET" || msgType == "POST" || msgType == "PUT" || msgType == "OPTIONS" || msgType == "HEAD" || msgType == "DELETE" {
+		httpMsg.Method2 = parts[0]
+		httpMsg.Uri2 = parts[1]
+		httpMsg.Version2 = parts[2]
+	} else {
+		httpMsg.Error = fmt.Errorf("invalide method: %s", msgType)
+	}
+	// httpMsg.StartLine.
+	// parts = append(parts, []byte{CR, LF})
+	httpMsg.StartStatusLine = bytes.Join(parts, []byte{SP})
+	httpMsg.StartStatusLine = append(httpMsg.StartStatusLine, CR)
+	httpMsg.StartStatusLine = append(httpMsg.StartStatusLine, LF)
+}
+
 func main() {
+
 	// test()
 	if len(os.Args) < 2 {
 		log.Fatal("No port specified.")
@@ -281,418 +660,6 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-}
-
-func test() {
-	b := []byte("\r\n\r\n")
-	fmt.Printf("== \\r = %v\n", b[0] == CR)
-	fmt.Printf("== \\n = %v\n", b[1] == CR)
-	fmt.Printf("== \\r = %v\n", b[0] == LF)
-	fmt.Printf("== \\n = %v\n", b[1] == LF)
-	// CRLF
-}
-
-func readHttpMessage(tlsConn *tls.Conn) httpMessage {
-	// Max tcp packet size is 65k, typical network equipment restrict MTU to 1500 bytes
-	// use 2048, if greater copy to bytebuffer as needed
-	b := make([]byte, BUFFER_INC)
-	buffer := bytes.Buffer{}
-	httpMsg := httpMessage{}
-	headersEnd := -1
-	read := 0
-
-	for headersEnd == -1 {
-		// until all headers read
-		r, readErr := tlsConn.Read(b)
-		buffer.Write(b[0:r])
-		// fmt.Printf("readHttpHeaders: %v, ReadErr: %v\n", r, readErr)
-		// fmt.Printf("%+v\n", string(b))
-		if readErr != nil {
-			httpMsg.Error = readErr
-			return httpMsg
-		}
-		headersEnd = bytes.Index(b[0:r], []byte{CR, LF, CR, LF})
-		if headersEnd != -1 {
-			headersEnd += read + 4 // +4 headersEnd should point to first byte after double CRLF
-		}
-		read += r
-
-	}
-	httpMsg.HeaderEnd = headersEnd
-
-	// Parse Headers
-	httpMsg.Headers = map[string]string{}
-	b = buffer.Bytes()
-	// index := 0
-	index := processStartLine(b[0:headersEnd], &httpMsg)
-	if httpMsg.Error != nil {
-		log.Fatalf("readRequestStartLine: %v, index: %v\n\n", httpMsg.Error, index)
-		return httpMsg
-	}
-
-	// Headers
-	index += parseHeaders(b[index:headersEnd], &httpMsg)
-	if httpMsg.Error != nil {
-		log.Fatalf("parseHeaders: %v, index: %v\n\n", httpMsg.Error, index)
-		return httpMsg
-	}
-	fmt.Println(index)
-
-	// Body
-	// verify b[index] doesn't need another read
-	if httpMsg.ContentType == CHUNKED {
-		chunkSize := getHexDigit(b[index:])
-		if chunkSize == -1 {
-			log.Fatal("Need to do another read to get chunk size")
-			// handle error
-		}
-		bodyStart, err := readNextLine(b[index:])
-		if err != nil {
-			//handle error
-		}
-		bodyStart++
-		httpMsg.ContentStart = index + bodyStart
-		httpMsg.ContentEnd = httpMsg.ContentStart + chunkSize
-
-		// fmt.Printf("\n\n--%+v--\n\n\n", string(b[httpMsg.ContentStart:httpMsg.ContentEnd]))
-	} else if httpMsg.ContentType == LENGTH {
-		// bodyStart, err := readNextLine(msg[index:])
-		// if err != nil {
-		// 	//handle error
-		// }
-		// bodyStart++
-		httpMsg.ContentStart = index
-		httpMsg.ContentEnd = httpMsg.ContentStart + httpMsg.ContentEnd
-		// fmt.Printf("\n\n--%+v--\n\n\n", string(b[httpMsg.ContentStart:httpMsg.ContentEnd]))
-	}
-
-	// need more reads?
-	fmt.Printf("ContentEnd: %v, Read: %v\n", httpMsg.ContentEnd, read)
-	if httpMsg.ContentType != NONE && httpMsg.ContentEnd > read {
-		b := make([]byte, BUFFER_INC)
-		bytesNeeded := httpMsg.ContentEnd - read
-		for bytesNeeded > 0 {
-			r, readErr := tlsConn.Read(b)
-			if readErr != nil {
-				httpMsg.Error = readErr
-				return httpMsg
-			}
-			buffer.Write(b[0:r])
-			// fmt.Printf("Extra readHttpHeaders: %v, ReadErr: %v\n", r, readErr)
-			bytesNeeded -= r
-		}
-	}
-
-	httpMsg.RawMessage = buffer.Bytes()
-	httpMsg.RawMessageLen = len(httpMsg.RawMessage)
-
-	// fmt.Printf("\n\n--%+v--\n\n\n", string(httpMsg.RawMessage[httpMsg.ContentStart:httpMsg.ContentEnd]))
-	return httpMsg
-}
-
-func readFromConnection(tlsConn *tls.Conn) httpMessage {
-	b := make([]byte, BUFFER_INC)
-	httpMsg := httpMessage{}
-
-	read, readErr := tlsConn.Read(b)
-	// fmt.Printf("Read: %v, ReadErr: %v\n", read, readErr)
-	// fmt.Printf("%+v\n", string(b))
-	if readErr != nil {
-		httpMsg.Error = readErr
-		return httpMsg
-	}
-
-	if read >= len(b) {
-		buffer := bytes.Buffer{}
-		buffer.Write(b)
-		for {
-			innerRead, readErr := tlsConn.Read(b)
-			fmt.Printf("Read Extra: %v, ReadErr: %v\n", innerRead, readErr)
-			// fmt.Printf("%+v\n", string(b))
-			if readErr != nil {
-				httpMsg.Error = readErr
-				return httpMsg
-			}
-			buffer.Write(b[0:innerRead])
-			read += innerRead
-			if innerRead < BUFFER_INC {
-				//b = buffer.Bytes()
-				break
-			}
-		}
-		fmt.Printf("\nFinal []byte size: %v\n", len(b))
-		b = buffer.Bytes()
-	}
-	httpMsg.RawMessage = b
-	httpMsg.RawMessageLen = read
-
-	return httpMsg
-}
-
-func keepChunking(readTlsConn, writeTlsConn *tls.Conn) error {
-	// TODO CORRECTLY - see mileage from this
-	for {
-		httpMsg := readFromConnection(readTlsConn)
-		processNextChunk(&httpMsg)
-		if httpMsg.LastChunk {
-			clientWritten, clientWriteErr := writeTlsConn.Write([]byte{ZERO, CR, LF, CR, LF})
-			if clientWriteErr != nil {
-				fmt.Printf("keepChunking.clientWritten Last Chunk Error: %v", clientWriteErr)
-				return clientWriteErr
-			}
-			fmt.Printf("keepChunking.clientWritten Last Chunk: %v, clientWriteErr: %v\n", clientWritten, clientWriteErr)
-			break
-		}
-
-		clientWritten, clientWriteErr := writeTlsConn.Write(httpMsg.RawMessage[0:httpMsg.ContentEnd])
-		if clientWriteErr != nil {
-			fmt.Printf("keepChunking client Chunk Written Error: %v", clientWriteErr)
-			return clientWriteErr
-		}
-		fmt.Printf("keepChunking client Chunk Written: %v, clientWriteErr: %v\n", clientWritten, clientWriteErr)
-	}
-	return nil
-}
-
-func processNextChunk(httpMsg *httpMessage) {
-	/*
-				chunked-body   = *chunk
-								last-chunk
-								trailer-section
-								CRLF
-
-				chunk          = chunk-size [ chunk-ext ] CRLF
-								chunk-data CRLF
-				chunk-size     = 1*HEXDIG
-				last-chunk     = 1*("0") [ chunk-ext ] CRLF
-
-				chunk-data     = 1*OCTET ; a sequence of chunk-size octets
-
-		    	chunk-ext      = *( BWS ";" BWS chunk-ext-name
-		        	              [ BWS "=" BWS chunk-ext-val ] )
-
-				chunk-ext-name = token
-				chunk-ext-val  = token / quoted-string
-
-				trailer-section   = *( field-line CRLF )
-	*/
-	if isLastChunk(httpMsg.RawMessage) {
-		httpMsg.LastChunk = true
-		return
-	}
-
-	chunkSize := getHexDigit(httpMsg.RawMessage[0:httpMsg.RawMessageLen])
-	if chunkSize == -1 {
-		// TODO handle error, most likely either
-		// trailer-section which ignoring for now
-		// or last chunk 2 x CRLF sent in 2 different writes
-		fmt.Printf("processNextChunk: Unexpect chunk size, data: %+v\n", string(httpMsg.RawMessage[0:httpMsg.RawMessageLen]))
-		return
-	}
-	bodyStart, err := readNextLine(httpMsg.RawMessage[0:httpMsg.RawMessageLen])
-	if err != nil {
-		//handle error
-	}
-	bodyStart++
-	httpMsg.ContentStart = bodyStart
-	httpMsg.ContentEnd = httpMsg.ContentStart + chunkSize + 2 // add CRLF with +2
-	// fmt.Printf("\n\n--%+v--\n\n\n", string(httpMsg.RawMessage[httpMsg.ContentStart:httpMsg.ContentEnd]))
-}
-
-func isLastChunk(b []byte) bool {
-	// TODO - Really Should check for just ZERO, CR, LF by itself as well, server may send ending CR, LF
-	//        sperate write
-	if len(b) > 4 && b[0] == ZERO {
-		if bytes.Equal(b[0:5], []byte{ZERO, CR, LF, CR, LF}) {
-			return true
-		}
-		// ignore chunk-ext check for CR, LF, CR, LF
-		if bytes.Contains(b, []byte{CR, LF, CR, LF}) {
-			fmt.Printf("isLastChunk: Chunk Contains chunk-ext(?): %s\n", string(b))
-			return true
-		}
-	}
-	return false
-}
-
-func processStartLine(msg []byte, httpMsg *httpMessage) int {
-	newIndex := bytes.IndexByte(msg, LF)
-	if newIndex > 0 && msg[newIndex-1] != CR {
-		httpMsg.Error = fmt.Errorf("invalid start-line, LF not followed by CR")
-		return -1
-	}
-
-	// Using strict SP https://httpwg.org/specs/rfc9112.html#request.line
-	// Using strict SP https://httpwg.org/specs/rfc9112.html#status.line
-	parts := bytes.Split(msg[:newIndex], []byte{SP})
-	if len(parts) < 3 {
-		httpMsg.Error = fmt.Errorf("invalid start-line, %s", string(msg[:newIndex]))
-		return -1
-	}
-
-	msgType := string(parts[0])
-	if strings.Index(msgType, "HTTP/") == 0 {
-		httpMsg.Version = msgType
-		httpMsg.StatusCode = string(parts[1])
-		httpMsg.ReasonPhrase = string(parts[2])
-	} else if msgType == "GET" || msgType == "POST" || msgType == "PUT" || msgType == "OPTIONS" || msgType == "HEAD" || msgType == "DELETE" {
-		httpMsg.Method = msgType
-		httpMsg.Uri = string(parts[1])
-		httpMsg.Version = string(parts[2])
-	} else {
-		httpMsg.Error = fmt.Errorf("invalide method: %s", msgType)
-		return -1
-	}
-
-	return newIndex + 1
-}
-
-func parseHeaders(msg []byte, httpMsg *httpMessage) int {
-	// fmt.Printf("\n\n~%v~\n\n", string(msg))
-	curIndex := 0
-	for {
-		newIndex, err := readNextLine(msg[curIndex:])
-		if err != nil {
-			httpMsg.Error = err
-			return -1
-		}
-		newIndex += curIndex
-		// fmt.Printf("curIndex=%v ,newIndex=%v, isNewLine(msg[curIndex], msg[newIndex])=%v\n", curIndex, newIndex, isNewLine(msg[curIndex], msg[newIndex]))
-		if isNewLine(msg[curIndex], msg[newIndex]) {
-			break
-		}
-		colon := bytes.IndexByte(msg[curIndex:newIndex], COLON)
-		if colon == -1 {
-			httpMsg.Error = fmt.Errorf("invalid header, no colon: %s", string(msg[curIndex:newIndex]))
-			return -1
-		}
-		colon += curIndex
-		/*
-		 * MIGHT CHANGE SO httpMessage keeps everything as []byte instead of string
-		 */
-		key := string(msg[curIndex:colon])
-		valStart := colon + 1
-		valEnd := newIndex - 2
-		if isOWS(msg[valStart]) {
-			valStart++
-		}
-		if isOWS(msg[valEnd]) {
-			valEnd--
-		}
-		// TODO - check for bare CR
-		val := string(msg[valStart : valEnd+1])
-		// fmt.Printf("-%s-%s-\n", key, val)
-		// TODO Headers should be [][] to handle multiple set-cookie in response
-		httpMsg.Headers[key] = val
-
-		lowerKey := strings.ToLower(key)
-		if lowerKey == "content-length" {
-			httpMsg.ContentEnd, _ = strconv.Atoi(val)
-			httpMsg.ContentType = LENGTH
-		} else if lowerKey == "transfer-encoding" {
-			httpMsg.ContentType = CHUNKED
-		} else if lowerKey == "content-encoding" {
-			httpMsg.ContentEncoding = strings.ToLower(val)
-		}
-
-		curIndex = newIndex + 1
-	}
-
-	return curIndex + 2
-}
-
-func readNextLine(msg []byte) (int, error) {
-	// field-line   = field-name ":" OWS field-value OWS
-	if isNewLine(msg[0], msg[1]) {
-		return 1, nil
-	}
-	if isOWS(msg[0]) {
-		error := fmt.Errorf("invalid header, starts with whitespace")
-		return -1, error
-	}
-	newIndex := bytes.IndexByte(msg, LF)
-	if newIndex == -1 || newIndex == 0 || msg[newIndex-1] != CR {
-		error := fmt.Errorf("invalid header, LF not proceeded by CR")
-		fmt.Printf("\n\nindex: %v, newIndex: %v\n", 0, newIndex)
-		// fmt.Printf("%v\n\n", string(msg[0:newIndex]))
-		return -1, error
-	}
-
-	return newIndex, nil
-}
-
-func getHexDigit(b []byte) int {
-	for i := 0; i < len(b); i++ {
-		if (b[i] >= ZERO && b[i] <= NINE) || (b[i] >= LOWER_A && b[i] <= LOWER_F) || (b[i] >= UPPER_A && b[i] <= UPPER_F) {
-			continue
-		}
-		if i == 0 {
-			return -1
-		}
-		hexVal, err := strconv.ParseInt(string(b[0:i]), 16, 64)
-		if err != nil {
-			return -1
-		}
-		return int(hexVal)
-	}
-	return -1
-}
-
-func isOWS(b byte) bool {
-	// SP, HTAB, VT (%x0B), FF (%x0C), or bare CR
-	if b == SP || b == HTAB || b == VT || b == FF || b == CR {
-		return true
-	}
-	return false
-}
-
-func isNewLine(cr, lf byte) bool {
-	if cr == CR && lf == LF {
-		return true
-	} else {
-		return false
-	}
-}
-
-func getBodyAsString(httpMsg *httpMessage) string {
-	if httpMsg.ContentType == NONE {
-		return ""
-	}
-
-	// buf := bytes.Buffer{}
-	// if err := json.Indent(&buf, b, "", "   "); err != nil {
-	// check content encoding
-	if httpMsg.ContentEnd > httpMsg.ContentStart {
-		var compressionReader io.Reader
-		var err error
-		reader := bytes.NewReader(httpMsg.RawMessage[httpMsg.ContentStart:httpMsg.ContentEnd])
-
-		if httpMsg.ContentEncoding == "gzip" { //|| strings.ToLower(encoding) == "gzip" {
-			compressionReader, err = gzip.NewReader(reader)
-			if err != nil {
-				fmt.Printf("Error Getting gzip Reader: %s\n", err)
-			}
-		} /*else if encoding == "br" {
-			compressionReader = brotli.NewReader(reader)
-		} else if encoding == "zstd" {
-			compressionReader, err = zstd.NewReader(reader)
-			if err != nil {
-				fmt.Printf("Error Getting zstd Reader: %s\n", err)
-			}
-		}*/
-
-		if compressionReader != nil {
-			bytesBody, _ := io.ReadAll(compressionReader)
-			return string(bytesBody)
-		} else {
-			return string(httpMsg.RawMessage[httpMsg.ContentStart:httpMsg.ContentEnd])
-		}
-		// } else {
-		// 	bytesBody = buf.Bytes()
-		// }
-	}
-
-	return ""
 }
 
 func transfer(destination io.WriteCloser, source io.ReadCloser) {
