@@ -23,7 +23,6 @@ import (
 	"net/http"
 )
 
-// TODO - when reading chunks server might send a single chunk that spans multiple socket reads ???
 type ProxyHandler struct {
 	Port             string
 	InspectedOrigins map[string]string
@@ -128,59 +127,60 @@ func processInspectedOrigin(clientConn /*, originConn*/ net.Conn, origin string)
 		return
 	}
 
+	//
 	// Process Request
 	for {
 		//
 		// Read from Client
 		//
-		httpMsg := httpMessage{SrcConn: tlsConn, DstConn: originTlsConn}
-		readRequest(&httpMsg)
-		if httpMsg.Error != nil {
-			if httpMsg.Error.Error() == "EOF" {
+		reqHttpMsg := httpMessage{SrcConn: tlsConn, DstConn: originTlsConn, Origin: origin}
+		readRequest(&reqHttpMsg)
+		if reqHttpMsg.Error != nil {
+			if reqHttpMsg.Error.Error() == "EOF" {
 				log.Println("client readRequest EOF..")
 				break
 			} else {
-				log.Fatal(httpMsg.Error)
+				log.Fatal(reqHttpMsg.Error)
 			}
 		}
 
-		fmt.Printf("\n\nStatusLine 1.0: %v %v %v\n", httpMsg.Version, httpMsg.StatusCode, httpMsg.ReasonPhrase)
-		printHttpMessage(&httpMsg)
+		printHttpMessage(&reqHttpMsg)
 
 		//
 		// Write to Origin
 		//
-		writeRequest(&httpMsg)
-		if httpMsg.Error != nil {
-			log.Fatalf("origin writeRequest error, %s\n", httpMsg.Error.Error())
+		writeRequest(&reqHttpMsg)
+		if reqHttpMsg.Error != nil {
+			log.Fatalf("origin writeRequest error, %s\n", reqHttpMsg.Error.Error())
 		}
 
 		//
 		// Read from Origin
 		//
-		httpMsg = httpMessage{SrcConn: originTlsConn, DstConn: tlsConn}
-		readRequest(&httpMsg) // REALLY Testing
-		if httpMsg.Error != nil {
-			if httpMsg.Error.Error() == "EOF" {
+		resHttpMsg := httpMessage{SrcConn: originTlsConn, DstConn: tlsConn, ReqHttpMessage: &reqHttpMsg}
+		readRequest(&resHttpMsg) // REALLY Testing
+		if resHttpMsg.Error != nil {
+			if resHttpMsg.Error.Error() == "EOF" {
 				log.Println("origin readRequest EOF..")
 				break
 			} else {
-				log.Fatal(httpMsg.Error)
+				log.Fatal(resHttpMsg.Error)
 			}
 		}
 
-		fmt.Printf("\n\nStatusLine 3.0: %v %v %v\n", httpMsg.Version, httpMsg.StatusCode, httpMsg.ReasonPhrase)
-		printHttpMessage(&httpMsg)
+		printHttpMessage(&resHttpMsg)
 
 		//
 		// Write from Client
 		//
-		writeRequest(&httpMsg)
-		if httpMsg.Error != nil {
-			log.Fatalf("client writeRequest error, %s\n", httpMsg.Error.Error())
+		writeRequest(&resHttpMsg)
+		if resHttpMsg.Error != nil {
+			log.Fatalf("client writeRequest error, %s\n", resHttpMsg.Error.Error())
 		}
 
 	}
+	// End Process Request
+	//
 }
 
 func printHttpMessage(httpMsg *httpMessage) {
@@ -198,7 +198,14 @@ func printHttpMessage(httpMsg *httpMessage) {
 	} else {
 		body = httpMsg.BodyBytesBuffer.String()
 	}
-	fmt.Printf("~~~~\n%s\n\n%s\n~~~~", httpMsg.HeadersBytesBuffer.String(), body) //httpMsg.BodyBytesBuffer.String())
+
+	if httpMsg.ReqHttpMessage == nil {
+		// Request from client
+		fmt.Printf("\n\n---> Sending to https://%s%s\n\n%s%s\n\n%s\n\n", httpMsg.Origin, string(httpMsg.Uri), string(httpMsg.StartStatusLine), httpMsg.HeadersBytesBuffer.String(), body)
+	} else {
+		// Response from origin
+		fmt.Printf("\n\n<--- Received from https://%s%s\n\n%s%s\n\n%s\n\n", httpMsg.ReqHttpMessage.Origin, string(httpMsg.ReqHttpMessage.Uri), string(httpMsg.StartStatusLine), httpMsg.HeadersBytesBuffer.String(), body)
+	}
 }
 
 type contentType int
@@ -275,8 +282,6 @@ type processingState struct {
 	Buffer bytes.Buffer
 	// bytes to process
 	SrcBytes []byte
-	// SrcBytes Read
-	// SrcBytesRead int
 	// require another socket read
 	NeedSrcBytes bool
 	// bits needed
@@ -288,34 +293,31 @@ type processingState struct {
 }
 
 type httpMessage struct {
-	// req / stat line
+	ReqHttpMessage *httpMessage
+
 	Method,
 	Uri,
 	Version,
 	StatusCode,
-	ReasonPhrase string
-
-	Method2,
-	Uri2,
-	Version2,
-	StatusCode2,
-	ReasonPhrase2,
+	ReasonPhrase,
 	StartStatusLine []byte
 
 	Headers map[string]string
 
+	Origin string
+
 	ContentType contentType
-	ContentStart,
-	ContentEnd,
-	HeaderEnd,
+	//ContentStart,
+	//ContentEnd,
+	//HeaderEnd,
 	ContentLength,
 	ChunkSize int
 
 	ContentEncoding string
 
-	RawMessage      []byte
-	RawMessageLen   int
-	RawBytesBuffer, // remove later?
+	//RawMessage      []byte
+	//RawMessageLen   int
+	//RawBytesBuffer, // remove later?
 	StartLine,
 	HeadersBytesBuffer,
 	BodyBytesBuffer,
@@ -610,13 +612,13 @@ func processStartLine2(startLine []byte, httpMsg *httpMessage) {
 
 	msgType := string(parts[0])
 	if strings.Index(msgType, "HTTP/") == 0 {
-		httpMsg.Version2 = parts[0]
-		httpMsg.StatusCode2 = parts[1]
-		httpMsg.ReasonPhrase2 = parts[2]
+		httpMsg.Version = parts[0]
+		httpMsg.StatusCode = parts[1]
+		httpMsg.ReasonPhrase = parts[2]
 	} else if msgType == "GET" || msgType == "POST" || msgType == "PUT" || msgType == "OPTIONS" || msgType == "HEAD" || msgType == "DELETE" {
-		httpMsg.Method2 = parts[0]
-		httpMsg.Uri2 = parts[1]
-		httpMsg.Version2 = parts[2]
+		httpMsg.Method = parts[0]
+		httpMsg.Uri = parts[1]
+		httpMsg.Version = parts[2]
 	} else {
 		httpMsg.Error = fmt.Errorf("invalide method: %s", msgType)
 	}
